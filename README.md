@@ -2,7 +2,7 @@
 
 > 闲鱼低价新品监控 + 描述过滤 + 自动生成待付款订单的常驻后台工具（Windows）
 
-**当前状态：设计阶段（[DESIGN_v5](design/DESIGN_v5.md) 待实施）**
+**当前状态：v0.1 已实现核心代码，选择器待 `probe.py` 实测固化（见下方"上线前必做"）**
 
 ## 它是做什么的
 
@@ -30,39 +30,73 @@
 | UNKNOWN 保护 | 提交后状态无法确认 → 禁止再次提交，通知人工核查 |
 | 多规格不自动拍 | 检测到多规格商品仅通知，不自动下单 |
 | 首次运行只建基线 | 第一次启动只记录不拍单，防止误拍历史商品 |
-| 不硬闯风控 | 验证码/风控 → 立即暂停并邮件告警 |
+| 不硬闯风控 | 验证码/风控 → 立即暂停 30 分钟并邮件告警 |
 
-## 技术选型
+## 快速开始
 
-- Python 3.12 + `uv` 环境管理
-- Playwright（Chromium）真实浏览器模拟人工操作，不做接口逆向
-- 规则词表 + AI 大模型（DeepSeek）双层判断
-- JSON / JSONL 存储，`pytest` 测试
+```bash
+# 1. 环境准备（Python 3.12 + uv）
+uv sync
+uv run playwright install chromium
+
+# 2. 配置
+cp config/config.example.json config/config.json   # 填写邮箱授权码、AI key 等
+
+# 3. 首次登录（有头浏览器扫码，会话自动保存）
+uv run python scripts/login.py
+
+# 4. 页面选择器实测（页面改版或首次部署前必做）
+uv run python scripts/probe.py "你的关键词"
+
+# 5. 启动常驻监控
+uv run python run.py        # Ctrl+C 优雅退出
+```
 
 ## 目录结构
 
 ```text
 闲鱼/
-├── run.py            # 入口：常驻轮询
-├── config/           # 配置 + 词表
-├── browser/          # 浏览器层（会话/搜索/详情/下单）
-├── core/             # 核心逻辑（过滤/去重/拍单决策/通知）
-├── scripts/          # probe 实测 / 手动登录
-├── data/             # 运行时数据（已 gitignore）
-└── tests/
+├── run.py                # 入口：常驻轮询、单实例锁、日志
+├── pyproject.toml        # uv 依赖与 pytest 配置
+├── config/               # config.json + 三份词表
+├── browser/
+│   ├── selectors.py      # 全部页面选择器集中管理（待实测固化）
+│   ├── session.py        # 登录/会话复用/风控识别
+│   ├── searcher.py       # 搜索 + 最新排序 + 扫描边界
+│   ├── detail.py         # 详情页读取 + 多规格检测
+│   └── order.py          # 创建待付款订单（绝不支付）
+├── core/
+│   ├── config.py         # 配置加载与校验
+│   ├── models.py         # 数据模型
+│   ├── dedupe.py         # 全局 item_id 去重
+│   ├── pipeline.py       # 主流程编排
+│   ├── orderer.py        # 拍单决策 + 限流
+│   ├── runtime.py        # 暂停状态 / 单实例锁
+│   ├── history.py        # JSONL 历史审计
+│   ├── filter/           # identity / rule / ai 三层过滤
+│   └── notifier/         # 邮件通知（可扩展其他渠道）
+├── scripts/
+│   ├── probe.py          # 页面结构/选择器实测
+│   └── login.py          # 手动扫码登录
+├── data/                 # 运行时数据（已 gitignore）
+└── tests/                # 45 个纯逻辑单测
 ```
 
 完整设计见 [design/DESIGN_v5.md](design/DESIGN_v5.md)。
 
-## 快速开始（实施后）
+## 测试
 
 ```bash
-uv sync
-uv run playwright install chromium
-python run.py
+uv run pytest   # 纯逻辑测试，不依赖浏览器
 ```
 
-> 配置说明、词表规则、风控策略、测试方案详见设计文档。
+## 上线前必做（按顺序）
+
+1. `python scripts/login.py` 完成扫码登录；
+2. `python scripts/probe.py` 实测当前闲鱼页面，把命中的选择器固化到 `browser/selectors.py` 各候选列表首位；
+3. 测试环境：`config.json` 中 `headless=false`、`buy.enabled=false`，人工观察搜索/详情/过滤/通知；
+4. 拍单验证：`daily_limit=1`，人工全程观察一次下单，确认生成待付款订单且**无任何支付动作**；
+5. 确认无误后切回 `headless=true` 常驻运行。
 
 ## 安全与合规声明
 

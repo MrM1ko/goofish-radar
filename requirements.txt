@@ -1,0 +1,5 @@
+# 与 pyproject.toml 保持同步的依赖清单（设计文档目录结构要求）
+# 优先使用: uv sync（读取 pyproject.toml）
+playwright>=1.49
+requests>=2.32
+pytest>=8.3

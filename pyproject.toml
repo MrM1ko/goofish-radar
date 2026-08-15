@@ -1,0 +1,22 @@
+[project]
+name = "xianyu-radar"
+version = "0.1.0"
+description = "闲鱼低价新品监控 + 描述过滤 + 自动生成待付款订单的常驻后台工具"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "playwright>=1.49",
+    "requests>=2.32",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.uv]
+default-groups = ["dev"]
