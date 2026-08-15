@@ -119,39 +119,43 @@ class Selectors:
     ]
 
     # ------------------------------------------------------- 详情页
+    # （2026-08 实测固化）
     detail_title: list[str] = [
-        '[class*="detail"] [class*="title"]',
-        '[class*="Detail"] h1',
+        ".desc--GaIUKUQY span span",  # 描述区第一段即标题；亦可回退 page.title()
+        '[class*="item-main-info"] [class*="title"]',
         "h1",
     ]
     detail_desc: list[str] = [
-        '[class*="desc"]',
-        '[class*="content"]',
+        ".desc--GaIUKUQY",
+        '[class*="desc--"]',
     ]
     detail_price: list[str] = [
-        '[class*="price"]',
-        '[class*="Price"]',
+        ".price--OEWLbcxC",   # 实测：纯数字文本，¥ 符号在兄弟元素 symbol 中
+        '[class*="price--"]',
+    ]
+    detail_post: list[str] = [
+        ".post--eemp1Mym",    # 邮费（"包邮" 或金额）
     ]
     detail_status: list[str] = [
         'text=已下架',
         '[class*="soldOut"]',
-        '[class*="status"]',
     ]
-    # 规格（多规格检测）
+    # 规格（多规格检测）：候选式，多规格商品待风控平息后实测固化
     sku_group: list[str] = [
         '[class*="sku"]',
         '[class*="spec"]',
         '[class*="Spec"]',
+        '[class*="option"]',
     ]
     sku_item: list[str] = [
         '[class*="sku"] [class*="item"]',
         '[class*="spec"] [class*="item"]',
     ]
-    # 下单
+    # 下单（实测："立即购买" 是链接，直达 create-order?itemId=xxx）
     buy_now_button: list[str] = [
+        "a.buy--MCbvZ6Lw",
+        'a[href*="create-order"]',
         'text=立即购买',
-        '[class*="buy"] >> text=立即购买',
-        'button:has-text("立即购买")',
     ]
     # 订单确认页
     submit_order_button: list[str] = [

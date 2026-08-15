@@ -39,9 +39,10 @@ class DetailReader:
             return self._fail(f"打开详情页失败: {e}")
 
         try:
-            result.title = self._text(self.selectors.detail_title)
+            result.title = self._read_title()
             result.desc = self._text(self.selectors.detail_desc)
             result.price = self._price(self._text(self.selectors.detail_price))
+            result.postage = self._text(self.selectors.detail_post)
             result.status = self._text(self.selectors.detail_status)
             result.has_sku, result.sku_count = self._detect_sku()
             result.seller_info = self._text(self.selectors.logged_in_mark)
@@ -55,6 +56,16 @@ class DetailReader:
         return result
 
     # ------------------------------------------------------------- 内部
+
+    def _read_title(self) -> str | None:
+        """读取标题：优先页面 <title>（去掉 _闲鱼 后缀），回退 DOM 选择器。"""
+        try:
+            page_title = self.page.title()
+            if page_title:
+                return page_title.removesuffix("_闲鱼").strip() or None
+        except Exception:
+            pass
+        return self._text(self.selectors.detail_title)
 
     def _detect_sku(self) -> tuple[bool, int]:
         """检测多规格：找到规格容器后统计【容器内可选规格项】的数量。

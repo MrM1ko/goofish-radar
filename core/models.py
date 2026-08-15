@@ -34,6 +34,7 @@ class DetailResult:
     title: str | None = None
     desc: str | None = None
     price: float | None = None
+    postage: str | None = None        # 邮费（"包邮" / 金额文本）
     status: str | None = None            # 商品状态，如"已下架"
     has_sku: bool = False
     sku_count: int = 0

@@ -94,17 +94,29 @@ class OrderCreator:
         return False
 
     def _click_buy_now(self) -> None:
+        """进入订单确认页。
+
+        实测（2026-08）："立即购买"是 <a class="buy--MCbvZ6Lw">
+        链接，href 直达 create-order?itemId=xxx。优先取 href 直接跳转，
+        回退为点击元素。
+        """
         for css in self.selectors.buy_now_button:
             locator = self.page.locator(css)
             try:
-                if locator.count() > 0:
-                    locator.first.click()
-                    self.page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                if locator.count() == 0:
+                    continue
+                href = locator.first.get_attribute("href")
+                if href:
+                    self.page.goto(href, wait_until="domcontentloaded", timeout=30_000)
                     self.page.wait_for_timeout(1500)
                     return
+                locator.first.click()
+                self.page.wait_for_load_state("domcontentloaded", timeout=15_000)
+                self.page.wait_for_timeout(1500)
+                return
             except Exception:
                 continue
-        raise SelectorError(f"立即购买按钮未找到: {self.selectors.buy_now_button}")
+        raise SelectorError(f"立即购买入口未找到: {self.selectors.buy_now_button}")
 
     def _click_submit(self) -> None:
         for css in self.selectors.submit_order_button:
