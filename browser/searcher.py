@@ -75,26 +75,58 @@ class Searcher:
         """打开搜索页并设置排序。
 
         优先尝试 URL 参数（实测后固化），失败则点击页面排序按钮。
+        商品列表是 JS 异步渲染，打开后需等待卡片出现。
         """
         url = SEARCH_URL.format(keyword=quote(keyword))
         self.page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        self.page.wait_for_timeout(1500)
+
+        cards_ready = self._wait_for_cards()
+        if not cards_ready:
+            logger.warning("等待商品卡片超时（关键词: %s），页面可能未登录或结果为空", keyword)
 
         if not self._apply_sort(sort):
             logger.warning("排序方式未能确认（关键词: %s），按页面默认顺序继续", keyword)
 
-    def _apply_sort(self, sort: str) -> bool:
-        """确认页面处于目标排序。返回 False 表示无法确认。
+    def _wait_for_cards(self, timeout_ms: int = 15_000) -> bool:
+        """等待商品卡片渲染完成。返回是否等到。"""
+        deadline = time.time() + timeout_ms / 1000
+        while time.time() < deadline:
+            if self._collect_cards():
+                return True
+            self.page.wait_for_timeout(500)
+        return False
 
-        sort 值映射：time → 最新发布。
-        待 probe.py 实测后把有效方式固化到这里（URL 参数优先于页面点击）。
+    def _apply_sort(self, sort: str) -> bool:
+        """通过排序控件选择目标排序。
+
+        实测（2026-08）：
+          - 点击标题展开下拉，选项共 11 个，含"最新"；
+          - "最新"等选项在滚动容器内，Playwright 常规 click 会因
+            "element is not visible" 失败，改用 JS el.click() 绕过。
+        sort: time → 选择"最新"。
         """
+        if sort != "time":
+            logger.warning("不支持的排序方式: %s", sort)
+            return False
         try:
-            button = pick(self.page, self.selectors.sort_button, "排序按钮")
-            button.click()
-            self.page.wait_for_timeout(1200)
+            title = pick(self.page, self.selectors.sort_button, "排序按钮")
+            title.click()
+            self.page.wait_for_timeout(800)
+            option = pick(self.page, self.selectors.sort_option_latest, "最新排序选项")
+            option.evaluate("el => el.click()")  # 绕过可见性/滚动限制
+            self.page.wait_for_timeout(1500)  # 等列表按新排序重新渲染
+
+            # 确认排序已生效：标题文本应变为"最新"
+            try:
+                current = self.page.locator(".search-select-title--zzthyzLG").first.inner_text()
+                if "最新" not in current:
+                    logger.warning("排序标题仍为 %r，排序可能未生效", current)
+                    return False
+            except Exception:
+                pass
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning("排序设置失败（按页面默认顺序继续）: %s", e)
             return False
 
     # ------------------------------------------------------------- 扫描

@@ -23,6 +23,7 @@ from browser.selectors import Selectors, pick
 logger = logging.getLogger(__name__)
 
 HOME_URL = "https://www.goofish.com/"
+LOGIN_URL = "https://www.goofish.com/login"
 
 # 用户扫码等待时长（秒）
 LOGIN_TIMEOUT_SECONDS = 180
@@ -52,7 +53,16 @@ class Session:
     # ------------------------------------------------------------- 生命周期
 
     def start(self) -> None:
-        """启动浏览器并加载会话。"""
+        """启动浏览器并加载会话。
+
+        ⚠️ headless=True 会被闲鱼 baxia 风控静默拒绝（返回空壳页面，
+        商品列表永远为空），因此强制使用有头模式运行。
+        """
+        if self.headless:
+            logger.warning(
+                "headless=True 会被闲鱼风控拒绝（2026-08 实测），已强制切换为有头模式"
+            )
+            self.headless = False
         self._pw = sync_playwright().start()
         self._browser = self._pw.chromium.launch(
             headless=self.headless,
@@ -98,10 +108,12 @@ class Session:
         return self._login_via_qrcode()
 
     def _check_logged_in(self) -> bool:
-        """打开首页，通过"登录入口是否消失/用户元素是否出现"判断。
+        """打开首页判断登录状态（任一信号命中即视为已登录）：
 
-        页面结构不稳定时保守策略：能稳定看到用户头像视为已登录；
-        检测不到也不报错，交给上层决定。
+          1. Cookie 层面：存在阿里登录态 Cookie（unb / _m_h5_tk / cookie2）
+             —— 扫码成功后由页面写入，比 DOM 元素可靠；
+          2. 页面存在用户头像等元素；
+          3. 页面不存在精确文本"登录"的入口。
         """
         try:
             self.page.goto(HOME_URL, wait_until="domcontentloaded", timeout=30_000)
@@ -109,18 +121,39 @@ class Session:
         except Exception as e:
             logger.warning("打开首页失败，暂按未登录处理: %s", e)
             return False
+        if self._has_login_cookie():
+            return True
         for css in self.selectors.logged_in_mark:
             try:
                 if self.page.locator(css).count() > 0:
                     return True
             except Exception:
                 continue
+        for css in self.selectors.login_entry:
+            try:
+                if self.page.locator(css).count() > 0:
+                    logger.debug("检测到登录入口，判定未登录")
+                    return False
+            except Exception:
+                continue
+        return False
+
+    def _has_login_cookie(self) -> bool:
+        """检查当前 context 是否存在代表登录态的 Cookie。"""
+        assert self._context is not None, "Session 未启动"
+        login_cookies = {"unb", "_m_h5_tk", "cookie2", "sgcookie"}
+        try:
+            for cookie in self._context.cookies():
+                if cookie.get("name") in login_cookies:
+                    return True
+        except Exception:
+            pass
         return False
 
     def _login_via_qrcode(self) -> bool:
         """切换有头模式打开登录页，等待用户扫码。
 
-        流程：重开浏览器为有头模式 → 打开闲鱼首页 → 用户点击登录并扫码
+        流程：重开浏览器为有头模式 → 打开闲鱼登录页 → 用户扫码
         → 程序轮询登录状态 → 成功后保存 storage_state。
         """
         self.close()
@@ -128,16 +161,23 @@ class Session:
         self.start()
 
         logger.info("请在浏览器窗口中完成扫码登录（最长等待 %d 秒）", LOGIN_TIMEOUT_SECONDS)
-        self.page.goto(HOME_URL, wait_until="domcontentloaded", timeout=30_000)
+        self.page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
         self.page.wait_for_timeout(2000)
 
         deadline = time.time() + LOGIN_TIMEOUT_SECONDS
         while time.time() < deadline:
-            # 只检查当前页面，不重新导航——避免刷新页面打断用户扫码
-            if self._check_logged_in_on_current_page():
-                self.save_storage()
-                logger.info("扫码登录成功，会话已保存到 %s", self.storage_path)
-                return True
+            # 登录成功信号：页面跳转离开登录页，或当前页出现用户头像等标识。
+            # 无论哪个信号，都跳回首页做一次完整确认（否定信号优先），
+            # 避免登录页上的"用户协议"等元素造成假阳性。
+            try:
+                left_login = "login" not in self.page.url
+            except Exception:
+                left_login = False
+            if left_login or self._check_logged_in_on_current_page():
+                if self._check_logged_in():
+                    self.save_storage()
+                    logger.info("扫码登录成功，会话已保存到 %s", self.storage_path)
+                    return True
             self.page.wait_for_timeout(3000)
 
         logger.error("扫码登录超时，本轮退出")

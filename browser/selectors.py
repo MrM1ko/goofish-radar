@@ -62,44 +62,49 @@ def _save_debug_snapshot(page: Page, label: str) -> None:
 class Selectors:
     """闲鱼各页面元素候选选择器。
 
-    ⚠️ 以下均为经验候选，必须先用 scripts/probe.py 实测确认，
-    命中后把实测选择器移到各自列表第一位。
+    每个列表【首位】为 2026-08 通过 scripts/probe.py 实测命中的选择器，
+    其余为页面改版时的降级候选。页面改版后请重新跑 probe.py 并更新首位。
     """
 
     # ------------------------------------------------------- 搜索页
-    # 商品卡片
+    # 商品卡片（实测：a.feeds-item-wrap，30 个/页）
     item_card: list[str] = [
-        '[class*="card"] a[href*="/item?"]',
-        'a[href*="goofish.com/item"]',
+        "a.feeds-item-wrap--rGdH_KoF",
         'a[href*="/item?id="]',
+        'a[href*="goofish.com/item"]',
     ]
     item_title: list[str] = [
-        '[class*="title"]',
-        '[class*="CardContent_title"]',
-        "h3",
+        ".main-title--sMrtWSJa",
+        '[class*="main-title"]',
     ]
     item_price: list[str] = [
-        '[class*="price"]',
-        '[class*="Price_price"]',
+        ".price-wrap--YzmU5cUl",
+        '[class*="price-wrap"]',
     ]
     item_link: list[str] = [
         'a[href*="/item"]',
         'a[href*="item?id"]',
     ]
-    # 排序：最新发布
+    # 排序（实测：点击标题打开下拉，选项中文本为"最新"）
     sort_button: list[str] = [
-        'text=最新发布',
-        '[class*="sort"] >> text=最新发布',
+        ".search-select-title-container--PqkTXn91",
+        '[class*="search-select-title"]',
+        "text=最新发布",
     ]
-    # 登录状态
+    sort_option_latest: list[str] = [
+        '.search-select-item--H_AJBURX:has-text("最新")',
+        '[class*="search-select-item"]:has-text("最新")',
+    ]
+    # 登录状态（实测：已登录页面 avatar 元素 30 个命中）
     logged_in_mark: list[str] = [
         '[class*="avatar"]',
-        '[class*="user"]',
         'img[class*="avatar"]',
+        '[class*="userCenter"]',
+        '[class*="my-account"]',
     ]
     login_entry: list[str] = [
         'text=登录',
-        '[class*="login"]',
+        'a[href*="/login"]',
     ]
     # 风控
     captcha_mark: list[str] = [

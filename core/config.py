@@ -34,7 +34,7 @@ class ConfigError(Exception):
 class SearchConfig:
     sort: str = "time"
     max_scan_items: int = 50
-    headless: bool = True
+    headless: bool = False  # 实测：headless 会被闲鱼 baxia 风控拒绝，必须为 False
     random_delay_seconds: list[int] = field(default_factory=lambda: [3, 8])
     screenshot: bool = False
 

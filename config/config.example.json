@@ -4,7 +4,7 @@
   "search": {
     "sort": "time",
     "max_scan_items": 50,
-    "headless": true,
+    "headless": false,
     "random_delay_seconds": [3, 8],
     "screenshot": false
   },
