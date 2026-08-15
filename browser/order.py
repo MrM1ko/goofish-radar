@@ -162,7 +162,11 @@ class OrderCreator:
     def _judge_result(self) -> OrderResult:
         """提交后判定 success / failed / unknown。
 
-        success：明确看到待付款/订单提交成功标识；
+        success 信号（任一命中）：
+          1. 跳转到支付宝收银台（cashier.alipay.com）——2026-08 实测：
+             点击"确认购买"后闲鱼立即跳转支付宝收银台进入付款环节，
+             说明待付款订单已成功生成；
+          2. 页面出现"待付款/订单提交成功"等标识。
         unknown：页面超时、结构异常、无法确认（含等待结果页期间的异常）。
         """
         try:
@@ -170,6 +174,23 @@ class OrderCreator:
         except Exception as e:
             return OrderResult(status="unknown", reason=f"提交后页面等待异常: {e}")
 
+        # 1. 跳转支付宝收银台 = 订单已生成（实测）
+        try:
+            current_url = self.page.url
+            if "alipay" in current_url or "cashier" in current_url:
+                # 立即离开支付页面，杜绝任何后续误操作
+                try:
+                    self.page.goto("about:blank", timeout=10_000)
+                except Exception:
+                    pass
+                return OrderResult(
+                    status="success",
+                    reason="已跳转支付宝收银台，待付款订单已生成（程序停止，绝不付款）",
+                )
+        except Exception:
+            pass
+
+        # 2. 页面文本标识
         try:
             for css in self.selectors.order_success_mark:
                 locator = self.page.locator(css)
@@ -178,9 +199,8 @@ class OrderCreator:
         except Exception:
             pass
 
-        # 页面 URL 变化到订单列表/结果页也可作为成功信号（待实测固化）
+        # 3. 订单结果页 URL 特征（待实测固化）
         try:
-            current_url = self.page.url
             if "order" in current_url and "success" in current_url:
                 return OrderResult(status="success", reason=f"订单结果页: {current_url}")
         except Exception:

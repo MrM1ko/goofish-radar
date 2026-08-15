@@ -82,6 +82,51 @@ def handle(page, cmd: dict) -> dict:
                     "error": result.error,
                 },
             }
+        if op == "page_marks":
+            # 返回当前页面特征（URL/标题/关键文本），用于下单结果判定
+            body_text = page.inner_text("body")[:3000] if page.url else ""
+            return {
+                "ok": True,
+                "url": page.url,
+                "title": page.title(),
+                "marks": {
+                    "待付款": "待付款" in body_text or "待付款" in page.title(),
+                    "支付": "支付" in body_text[:800],
+                    "支付宝": "支付宝" in body_text[:800] or "alipay" in page.url,
+                    "订单": "订单" in body_text[:800],
+                    "确认购买": "确认购买" in body_text,
+                },
+            }
+        if op == "confirm_buy_click":
+            # ⚠️ 会真实生成待付款订单：仅点击"确认购买"按钮，绝不点击任何支付元素。
+            # 等待 8 秒后返回页面特征供结果判定。
+            from browser.selectors import Selectors
+
+            sel = Selectors()
+            clicked = False
+            for css in sel.submit_order_button:
+                loc = page.locator(css)
+                try:
+                    if loc.count() > 0:
+                        loc.first.evaluate("el => el.click()")
+                        clicked = True
+                        break
+                except Exception:
+                    continue
+            page.wait_for_timeout(8000)
+            body_text = page.inner_text("body")[:3000] if page.url else ""
+            return {
+                "ok": True,
+                "clicked": clicked,
+                "url": page.url,
+                "title": page.title(),
+                "marks": {
+                    "待付款": "待付款" in body_text or "待付款" in page.title(),
+                    "支付": "支付" in body_text[:800],
+                    "支付宝": "支付宝" in body_text[:800] or "alipay" in page.url,
+                    "订单": "订单" in body_text[:800],
+                },
+            }
         if op == "quit":
             return {"ok": True, "quit": True}
         return {"ok": False, "error": f"unknown op: {op!r}"}
