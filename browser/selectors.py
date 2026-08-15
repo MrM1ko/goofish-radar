@@ -85,9 +85,11 @@ class Selectors:
         'a[href*="/item"]',
         'a[href*="item?id"]',
     ]
-    # 排序（实测：点击标题打开下拉，选项中文本为"最新"）
+    # 排序（实测：列表上方筛选区有【排序维度】和【发布时间】两个控件，
+    # "最新发布"= 发布时间控件选"最新"。发布时间控件可用其独有选项
+    # "1天内"特征定位，页面改版也稳定）
     sort_button: list[str] = [
-        ".search-select-title-container--PqkTXn91",
+        '.search-select-container--ANusUe9S:has(.search-select-item--H_AJBURX:has-text("1天内"))',
         '[class*="search-select-title"]',
         "text=最新发布",
     ]

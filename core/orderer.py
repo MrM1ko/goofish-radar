@@ -15,6 +15,7 @@ from enum import Enum
 from pathlib import Path
 
 from core.config import BuyConfig, MonitorConfig
+from core.filter.base import normalize_text
 from core.models import DetailResult, FilterResult, OrderResult, Product
 
 logger = logging.getLogger(__name__)
@@ -165,10 +166,27 @@ class Orderer:
             return OrderDecision(Decision.SKIP, "过滤未通过")
         if not monitor.auto_order:
             return OrderDecision(Decision.NOTIFY_ONLY, "该 monitor 未开启 auto_order")
-        if monitor.max_price is not None and product.price > monitor.max_price:
+
+        # 价格判断：优先按版本规则（如 MacBook Air 的 M2/M4 不同阈值），
+        # 未命中版本规则时用 monitor.max_price 兜底；都无阈值则仅通知。
+        text = normalize_text(
+            " ".join(
+                part
+                for part in (
+                    product.title,
+                    (detail.desc if detail else None) or product.desc,
+                )
+                if part
+            )
+        )
+        limit, rule_note = monitor.resolve_price_limit(text)
+        if limit is None:
+            return OrderDecision(Decision.NOTIFY_ONLY, "未配置价格阈值，仅通知")
+        if product.price > limit:
+            where = f"（{rule_note}）" if rule_note else ""
             return OrderDecision(
                 Decision.NOTIFY_ONLY,
-                f"价格 {product.price} 超过阈值 {monitor.max_price}",
+                f"价格 {product.price} 超过阈值 {limit}{where}",
             )
         if detail is not None and detail.has_sku:
             return OrderDecision(Decision.NOTIFY_ONLY, "多规格商品，不自动拍")

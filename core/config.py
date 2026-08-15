@@ -40,6 +40,22 @@ class SearchConfig:
 
 
 @dataclass
+class VersionRule:
+    """主搜索词下的版本子规则：命中 match_words 的商品适用独立价格阈值。
+
+    例：搜索 "MacBook Air"，M2 版阈值 3500、M4 版阈值 5500。
+    """
+
+    match_words: list[str]
+    max_price: float | None
+    note: str = ""
+
+    def matches(self, text: str) -> bool:
+        """text 为标准化后的商品文本（标题+描述）。任一命中词出现即命中。"""
+        return any(word in text for word in self.match_words)
+
+
+@dataclass
 class MonitorConfig:
     name: str
     keyword: str
@@ -47,6 +63,18 @@ class MonitorConfig:
     auto_order: bool = False
     max_price: float | None = None
     exclude_words: list[str] = field(default_factory=list)
+    version_rules: list[VersionRule] = field(default_factory=list)
+
+    def resolve_price_limit(self, text: str) -> tuple[float | None, str | None]:
+        """按版本规则匹配商品文本，返回 (适用阈值, 规则说明)。
+
+        text 为标准化后的标题+描述。命中某条规则 → 用该规则阈值；
+        全部未命中 → 用 monitor.max_price 兜底；都无 → None。
+        """
+        for rule in self.version_rules:
+            if rule.matches(text):
+                return rule.max_price, rule.note or "、".join(rule.match_words)
+        return self.max_price, None
 
 
 @dataclass
@@ -146,6 +174,30 @@ def _parse(raw: dict[str, Any]) -> AppConfig:
         exclude = item.get("exclude_words", [])
         if not isinstance(exclude, list) or not all(isinstance(w, str) for w in exclude):
             raise ConfigError(f"monitor {name!r} 的 exclude_words 必须是字符串数组")
+
+        version_rules: list[VersionRule] = []
+        for rule_raw in item.get("version_rules", []):
+            if not isinstance(rule_raw, dict):
+                raise ConfigError(f"monitor {name!r} 的 version_rules 每项必须是对象")
+            match_words = rule_raw.get("match_words", [])
+            if not isinstance(match_words, list) or not match_words or not all(
+                isinstance(w, str) for w in match_words
+            ):
+                raise ConfigError(
+                    f"monitor {name!r} 的 version_rules.match_words 必须是非空字符串数组"
+                )
+            rule_max = rule_raw.get("max_price")
+            if rule_max is not None and not isinstance(rule_max, (int, float)):
+                raise ConfigError(f"monitor {name!r} 的 version_rules.max_price 必须是数字")
+            version_rules.append(
+                VersionRule(
+                    # 仅统一小写；匹配时与标准化文本（filter.base.normalize_text）对比
+                    match_words=[w.lower() for w in match_words],
+                    max_price=float(rule_max) if rule_max is not None else None,
+                    note=str(rule_raw.get("note", "")),
+                )
+            )
+
         monitors.append(
             MonitorConfig(
                 name=name.strip(),
@@ -154,6 +206,7 @@ def _parse(raw: dict[str, Any]) -> AppConfig:
                 auto_order=bool(item.get("auto_order", False)),
                 max_price=float(max_price) if max_price is not None else None,
                 exclude_words=[w.strip() for w in exclude],
+                version_rules=version_rules,
             )
         )
 

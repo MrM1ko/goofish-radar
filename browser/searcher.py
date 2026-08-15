@@ -87,7 +87,7 @@ class Searcher:
         if not self._apply_sort(sort):
             logger.warning("排序方式未能确认（关键词: %s），按页面默认顺序继续", keyword)
 
-    def _wait_for_cards(self, timeout_ms: int = 15_000) -> bool:
+    def _wait_for_cards(self, timeout_ms: int = 25_000) -> bool:
         """等待商品卡片渲染完成。返回是否等到。"""
         deadline = time.time() + timeout_ms / 1000
         while time.time() < deadline:
@@ -97,33 +97,46 @@ class Searcher:
         return False
 
     def _apply_sort(self, sort: str) -> bool:
-        """通过排序控件选择目标排序。
+        """设置"最新发布"= 列表上方【发布时间】筛选器选择"最新"。
 
         实测（2026-08）：
-          - 点击标题展开下拉，选项共 11 个，含"最新"；
-          - "最新"等选项在滚动容器内，Playwright 常规 click 会因
-            "element is not visible" 失败，改用 JS el.click() 绕过。
-        sort: time → 选择"最新"。
+          - 页面有两个排序控件：排序维度（综合/最近活跃/…）与
+            发布时间（最新/1天内/3天内/…）；"最新发布"对应后者；
+          - 发布时间默认就是"最新"，此时无需任何操作；
+          - 需要切换时：点击标题展开下拉 → 原生点击"最新"选项
+            （JS el.click() 对 React 无效，且选项可能在滚动区）。
         """
         if sort != "time":
             logger.warning("不支持的排序方式: %s", sort)
             return False
         try:
-            title = pick(self.page, self.selectors.sort_button, "排序按钮")
-            title.click()
-            self.page.wait_for_timeout(800)
-            option = pick(self.page, self.selectors.sort_option_latest, "最新排序选项")
-            option.evaluate("el => el.click()")  # 绕过可见性/滚动限制
-            self.page.wait_for_timeout(1500)  # 等列表按新排序重新渲染
+            control = pick(self.page, self.selectors.sort_button, "发布时间筛选器")
 
-            # 确认排序已生效：标题文本应变为"最新"
+            # 已是"最新"则直接确认成功
             try:
-                current = self.page.locator(".search-select-title--zzthyzLG").first.inner_text()
-                if "最新" not in current:
-                    logger.warning("排序标题仍为 %r，排序可能未生效", current)
-                    return False
+                current = control.locator(".search-select-title--zzthyzLG").first.inner_text()
+                if "最新" in current:
+                    logger.debug("发布时间已是'最新'，无需切换")
+                    return True
             except Exception:
                 pass
+
+            # 展开下拉并选择"最新"
+            title = control.locator(".search-select-title-container--PqkTXn91").first
+            title.click()
+            self.page.wait_for_timeout(1000)
+            option = control.locator(
+                '.search-select-item--H_AJBURX:has-text("最新")'
+            ).first
+            option.scroll_into_view_if_needed(timeout=3000)
+            self.page.wait_for_timeout(300)
+            option.click()
+            self.page.wait_for_timeout(1500)  # 等列表重新渲染
+
+            current = control.locator(".search-select-title--zzthyzLG").first.inner_text()
+            if "最新" not in current:
+                logger.warning("发布时间切换后标题仍为 %r，可能未生效", current)
+                return False
             return True
         except Exception as e:
             logger.warning("排序设置失败（按页面默认顺序继续）: %s", e)

@@ -46,6 +46,12 @@ def handle(page, cmd: dict) -> dict:
             return {"ok": True, "url": page.url, "title": page.title()}
         if op == "count":
             return {"ok": True, "n": page.locator(cmd["css"]).count()}
+        if op == "click":
+            loc = page.locator(cmd["css"]).first
+            loc.scroll_into_view_if_needed(timeout=3000)
+            loc.click(timeout=5000)
+            page.wait_for_timeout(int(cmd.get("wait_ms", 1000)))
+            return {"ok": True, "url": page.url}
         if op == "text":
             loc = page.locator(cmd["css"]).first
             return {"ok": True, "text": loc.inner_text()[:800]}

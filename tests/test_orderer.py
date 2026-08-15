@@ -153,6 +153,69 @@ def test_execute_passes_max_price_to_order_fn(store):
     assert received["max_price"] == 200.0
 
 
+def test_version_rule_price_limit(orderer):
+    """版本规则：MacBook Air 主词，M2 版阈值 3500 / M4 版阈值 5500。"""
+    from core.config import VersionRule
+
+    monitor = make_monitor(
+        max_price=None,
+        version_rules=[
+            VersionRule(match_words=["m2"], max_price=3500.0, note="M2 版"),
+            VersionRule(match_words=["m4"], max_price=5500.0, note="M4 版"),
+        ],
+    )
+    # M4 版 ¥6000 超 M4 阈值 → 不拍
+    p = make_product(price=6000.0)
+    p.title = "MacBook Air M4 16+256"
+    d = orderer.decide(p, DetailResult(), PASSED, monitor)
+    assert d.decision == Decision.NOTIFY_ONLY
+    assert "M4 版" in d.reason
+
+    # M2 版 ¥3000 低于 M2 阈值 → 拍
+    p2 = make_product(price=3000.0)
+    p2.title = "MacBook Air M2 16+512"
+    d2 = orderer.decide(p2, DetailResult(), PASSED, monitor)
+    assert d2.decision == Decision.ORDER
+
+
+def test_version_rule_fallback_to_monitor_max(orderer):
+    """未命中任何版本规则 → 用 monitor.max_price 兜底。"""
+    from core.config import VersionRule
+
+    monitor = make_monitor(
+        max_price=4000.0,
+        version_rules=[VersionRule(match_words=["m4"], max_price=5500.0, note="M4 版")],
+    )
+    p = make_product(price=4500.0)
+    p.title = "MacBook Air M1 8+256"  # 未命中 m4 → 兜底 4000
+    d = orderer.decide(p, DetailResult(), PASSED, monitor)
+    assert d.decision == Decision.NOTIFY_ONLY
+    assert "4000" in d.reason
+
+
+def test_no_price_limit_notifies_only(orderer):
+    """monitor 与版本规则都没有阈值 → 仅通知不拍。"""
+    monitor = make_monitor(max_price=None)
+    d = orderer.decide(make_product(), DetailResult(), PASSED, monitor)
+    assert d.decision == Decision.NOTIFY_ONLY
+    assert "阈值" in d.reason
+
+
+def test_version_match_uses_desc(orderer):
+    """版本词在描述中出现也算命中（标题没写版本时）。"""
+    from core.config import VersionRule
+
+    monitor = make_monitor(
+        max_price=6000.0,
+        version_rules=[VersionRule(match_words=["m2"], max_price=3500.0, note="M2 版")],
+    )
+    p = make_product(price=3200.0)
+    p.title = "MacBook Air 16+256"
+    detail = DetailResult(desc="2023 款 M2 芯片")
+    d = orderer.decide(p, detail, PASSED, monitor)
+    assert d.decision == Decision.ORDER  # 命中 M2 规则，3200 < 3500
+
+
 def test_execute_unknown_blocks_retry(orderer, store):
     """UNKNOWN 落盘后禁止再次自动拍（设计文档第 18 节）。"""
     product = make_product("x2")

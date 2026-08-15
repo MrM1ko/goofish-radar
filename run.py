@@ -37,6 +37,8 @@ from core.orderer import Orderer, OrderStore  # noqa: E402
 from core.pipeline import Pipeline  # noqa: E402
 from core.runtime import RuntimeState, SingleInstanceLock  # noqa: E402
 
+from browser.session import Session  # noqa: E402
+
 logger = logging.getLogger("xianyu-radar")
 
 
@@ -67,20 +69,17 @@ def setup_logging() -> None:
     logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 
-def build_components(cfg: AppConfig):
-    """组装全部组件（依赖注入，测试与替换实现都从这里改）。"""
+def build_components(cfg: AppConfig, session: Session) -> Pipeline:
+    """组装全部组件（依赖注入，测试与替换实现都从这里改）。
+
+    注意：调用前必须先 session.start()，组件依赖已启动的 page。
+    """
     from browser.order import OrderCreator
-    from browser.session import Session
 
     dedupe = DedupeStore(DATA_DIR / "seen.json")
     history = HistoryStore(DATA_DIR / "history.jsonl")
     order_store = OrderStore(DATA_DIR / "orders.json")
     runtime = RuntimeState(DATA_DIR / "runtime_state.json")
-
-    session = Session(
-        storage_path=DATA_DIR / "storage_state.json",
-        headless=cfg.search.headless,
-    )
 
     order_creator = OrderCreator(session.page, session.selectors)
     orderer = Orderer(order_store, cfg.buy, order_creator)
@@ -116,9 +115,12 @@ def main() -> int:
         for line in human_readable(cfg).splitlines():
             logger.info("  %s", line)
 
-        pipeline = build_components(cfg)
-        session = pipeline.session
+        session = Session(
+            storage_path=DATA_DIR / "storage_state.json",
+            headless=cfg.search.headless,
+        )
         session.start()
+        pipeline = build_components(cfg, session)
         try:
             while True:
                 if not session.ensure_logged_in():
