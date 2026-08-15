@@ -42,7 +42,7 @@ def store(tmp_path):
 
 @pytest.fixture
 def orderer(store):
-    return Orderer(store, make_buy(), order_fn=lambda p: OrderResult(status="success"))
+    return Orderer(store, make_buy(), order_fn=lambda p, mp=None: OrderResult(status="success"))
 
 
 def test_filter_rejected_skips(orderer):
@@ -140,10 +140,23 @@ def test_execute_records_result(orderer, store):
     assert store.records[-1].status == "success"
 
 
+def test_execute_passes_max_price_to_order_fn(store):
+    """下单函数应收到 monitor 阈值，用于订单确认页金额兜底校验。"""
+    received = {}
+
+    def fake_order_fn(product, max_price=None):
+        received["max_price"] = max_price
+        return OrderResult(status="success")
+
+    orderer = Orderer(store, make_buy(), order_fn=fake_order_fn)
+    orderer.execute(make_product("x3"), make_monitor(max_price=200.0))
+    assert received["max_price"] == 200.0
+
+
 def test_execute_unknown_blocks_retry(orderer, store):
     """UNKNOWN 落盘后禁止再次自动拍（设计文档第 18 节）。"""
     product = make_product("x2")
-    orderer.order_fn = lambda p: OrderResult(status="unknown", reason="超时")
+    orderer.order_fn = lambda p, mp=None: OrderResult(status="unknown", reason="超时")
     orderer.execute(product, make_monitor())
 
     d = orderer.decide(product, DetailResult(), PASSED, make_monitor())

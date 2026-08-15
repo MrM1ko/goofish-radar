@@ -42,11 +42,17 @@ class OrderCreator:
         self.page = page
         self.selectors = selectors
 
-    def __call__(self, product: Product) -> OrderResult:
-        return self.create_pending_order(product)
+    def __call__(self, product: Product, max_price: float | None = None) -> OrderResult:
+        return self.create_pending_order(product, max_price=max_price)
 
-    def create_pending_order(self, product: Product) -> OrderResult:
-        """对指定商品执行下单流程，返回 success / failed / unknown。"""
+    def create_pending_order(
+        self, product: Product, max_price: float | None = None
+    ) -> OrderResult:
+        """对指定商品执行下单流程，返回 success / failed / unknown。
+
+        max_price：下单前兜底校验——订单确认页"合计金额"（含运费）
+        不得超过该阈值，防止运费/规格导致实际价格超出监控预算。
+        """
         try:
             self.page.goto(product.url, wait_until="domcontentloaded", timeout=30_000)
             self.page.wait_for_timeout(1500)
@@ -65,21 +71,45 @@ class OrderCreator:
         try:
             self._click_buy_now()
         except SelectorError as e:
-            return OrderResult(status="failed", reason=f"找不到立即购买按钮: {e}")
+            return OrderResult(status="failed", reason=f"找不到立即购买入口: {e}")
         except Exception as e:
-            return OrderResult(status="failed", reason=f"点击立即购买失败: {e}")
+            return OrderResult(status="failed", reason=f"进入订单确认页失败: {e}")
 
-        # 3. 提交订单
+        # 3. 兜底校验：确认页合计金额（含运费）不超阈值
+        if max_price is not None:
+            total = self._read_order_total()
+            if total is not None and total > max_price:
+                return OrderResult(
+                    status="failed",
+                    reason=f"订单合计 ¥{total} 超过阈值 ¥{max_price}，放弃下单",
+                )
+
+        # 4. 提交订单
         try:
             self._click_submit()
         except Exception as e:
             # 提交动作本身失败（找不到按钮/点击失败）是明确的 failed
             return OrderResult(status="failed", reason=f"提交订单失败: {e}")
 
-        # 4. 判定结果（点击提交之后的任何异常/超时都归为 unknown）
+        # 5. 判定结果（点击提交之后的任何异常/超时都归为 unknown）
         return self._judge_result()
 
     # ------------------------------------------------------------- 内部
+
+    def _read_order_total(self) -> float | None:
+        """读取订单确认页的合计金额（含运费）。读取失败返回 None（不阻断）。"""
+        from browser.searcher import parse_price
+
+        for css in self.selectors.order_total:
+            try:
+                locator = self.page.locator(css)
+                if locator.count() > 0:
+                    price = parse_price(locator.first.inner_text())
+                    if price is not None:
+                        return price
+            except Exception:
+                continue
+        return None
 
     def _is_sold_out(self) -> bool:
         for css in self.selectors.detail_status:

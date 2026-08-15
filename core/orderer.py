@@ -189,11 +189,14 @@ class Orderer:
     def execute(self, product: Product, monitor: MonitorConfig) -> OrderResult:
         """调用注入的下单函数并把结果落盘。
 
+        把 monitor.max_price 一并传入下单函数，作为订单确认页
+        "合计金额（含运费）"的最后一道兜底校验。
+
         结果一经产生（success/failed/unknown）就写入 orders.json，
         之后任何状态都不会再次自动拍同一商品。
         """
         logger.info("开始下单: %s (%s) ¥%s", product.title, product.item_id, product.price)
-        result: OrderResult = self.order_fn(product)
+        result: OrderResult = self.order_fn(product, monitor.max_price)
         self.store.record(
             OrderRecord(
                 item_id=product.item_id,

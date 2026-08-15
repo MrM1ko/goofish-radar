@@ -80,3 +80,16 @@ def test_detail_desc_is_checked(identity_filter):
         make_monitor(),
     )
     assert result.passed is False
+
+
+def test_blind_box_traction_rejected(tmp_path):
+    """2026-08 实测：'福利疯抢'盲盒引流货（¥0.01）必须被身份过滤拦截，
+    否则价格判断会误认为超低价商品。"""
+    words = tmp_path / "invalid.txt"
+    words.write_text("盲盒\n福利疯抢\n随机发货\n", encoding="utf-8")
+    f = IdentityFilter(words_file=words)
+    product = make_product("【福利疯抢】iPhone 15", "盲盒随机打包手机，1人1单")
+    detail = DetailResult(desc="盲盒随机打包手机，1人1单，随机发货")
+    result = f.check(product, detail, make_monitor())
+    assert result.passed is False
+    assert "盲盒" in result.reasons[0]

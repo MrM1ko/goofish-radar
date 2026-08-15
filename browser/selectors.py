@@ -157,11 +157,16 @@ class Selectors:
         'a[href*="create-order"]',
         'text=立即购买',
     ]
-    # 订单确认页
+    # 订单确认页（2026-08 实测：URL 为 /create-order?itemId=xxx）
     submit_order_button: list[str] = [
+        "div.button--_ICQy2Ha",          # 实测：div 元素，文案"确认购买"
+        'div:has-text("确认购买")',
         'text=提交订单',
         'button:has-text("提交订单")',
-        '[class*="submit"] >> text=提交订单',
+    ]
+    order_total: list[str] = [
+        ".money--eJruSjOm",             # 实测：合计金额 "¥3066.00"
+        '[class*="money"]',
     ]
     order_pending_mark: list[str] = [
         'text=待付款',
