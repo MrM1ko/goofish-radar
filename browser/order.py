@@ -2,14 +2,16 @@
 
 职责只有一个：创建待付款订单，绝不付款。
 
-流程：
+流程（2026-08 全部实测固化）：
   open(item_url)
   → 再次确认商品仍在售
-  → 再次读取价格
-  → 确认没有多规格
-  → 点击立即购买
-  → 订单确认页点击提交订单
-  → 等待结果（success / failed / unknown）
+  → 点击立即购买（链接直达 create-order）
+  → 订单确认页金额兜底校验（含运费不超阈值）
+  → 点击"确认购买"（div.button--_ICQy2Ha）
+  → 等待跳转：
+      到支付宝收银台 = success（待付款订单已生成）
+      → 立即离开支付页面，返回结果
+      → 上层（Pipeline）发送邮件后继续检测下一个商品
   → 绝不点击任何支付按钮
 
 明确禁止：支付密码、付款按钮、支付宝确认、微信支付、免密支付、
@@ -32,7 +34,7 @@ from core.models import OrderResult, Product
 
 logger = logging.getLogger(__name__)
 
-SUBMIT_WAIT_SECONDS = 10
+SUBMIT_WAIT_SECONDS = 6  # 提交后等待页面跳转的时间（实测：6 秒足够跳到收银台）
 
 
 class OrderCreator:
