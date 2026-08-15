@@ -112,7 +112,7 @@ class Pipeline:
             self.dedupe.save()
             logger.info("首次运行：已建立基线 %d 条，不执行拍单", len(new_products))
             self._notify(
-                "xianyu-radar 初始化完成",
+                "goofish-radar 初始化完成",
                 f"首次运行已建立基线：{len(new_products)} 条商品已记录为已见。\n"
                 "下一轮开始才会处理真正的新商品。",
             )
@@ -196,7 +196,7 @@ class Pipeline:
         if status == "success":
             logger.info("ORDER_SUCCESS item=%s order_id=%s", product.item_id, result.order_id)
             self._notify(
-                "xianyu-radar 拍单成功",
+                "goofish-radar 拍单成功",
                 f"已生成待付款订单，请人工检查后决定是否付款。\n\n"
                 f"标题: {product.title}\n"
                 f"价格: ¥{product.price}\n"
@@ -206,14 +206,14 @@ class Pipeline:
         elif status == "unknown":
             logger.warning("ORDER_UNKNOWN item=%s", product.item_id)
             self._notify(
-                "xianyu-radar 订单状态无法确认",
+                "goofish-radar 订单状态无法确认",
                 f"订单提交后状态无法确认，请人工检查闲鱼待付款列表。\n\n"
                 f"标题: {product.title}\n链接: {product.url}\n原因: {result.reason}",
             )
         else:
             logger.warning("ORDER_FAILED item=%s reason=%s", product.item_id, result.reason)
             self._notify(
-                "xianyu-radar 拍单失败",
+                "goofish-radar 拍单失败",
                 f"标题: {product.title}\n链接: {product.url}\n原因: {result.reason}",
             )
 
@@ -223,7 +223,7 @@ class Pipeline:
         logger.warning("CAPTCHA_DETECTED 检测到验证码，暂停 %d 分钟", CAPTCHA_PAUSE_MINUTES)
         self.runtime.pause(CAPTCHA_PAUSE_MINUTES, "captcha")
         self._notify(
-            "xianyu-radar 风控暂停",
+            "goofish-radar 风控暂停",
             f"检测到验证码/滑块，已暂停 {CAPTCHA_PAUSE_MINUTES} 分钟。\n"
             f"恢复时间: {self.runtime.paused_until}",
         )
@@ -260,4 +260,4 @@ class Pipeline:
         ]
         if extra_reason:
             lines.append(f"是否满足自动拍条件: 否（{extra_reason}）")
-        self._notify("xianyu-radar 发现新商品", "\n".join(lines))
+        self._notify("goofish-radar 发现新商品", "\n".join(lines))

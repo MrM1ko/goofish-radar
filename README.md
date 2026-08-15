@@ -1,4 +1,4 @@
-# xianyu-radar · 闲鱼雷达
+# goofish-radar · 闲鱼雷达
 
 > 闲鱼低价新品监控 + 描述过滤 + 自动生成待付款订单的常驻后台工具（Windows）
 

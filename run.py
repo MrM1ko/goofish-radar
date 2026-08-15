@@ -1,4 +1,4 @@
-"""xianyu-radar 入口：常驻轮询，Ctrl+C 优雅退出。
+"""goofish-radar 入口：常驻轮询，Ctrl+C 优雅退出。
 
 用法：
     python run.py
@@ -39,7 +39,7 @@ from core.runtime import RuntimeState, SingleInstanceLock  # noqa: E402
 
 from browser.session import Session  # noqa: E402
 
-logger = logging.getLogger("xianyu-radar")
+logger = logging.getLogger("goofish-radar")
 
 
 def setup_logging() -> None:
@@ -111,7 +111,7 @@ def main() -> int:
             logger.error("配置错误: %s", e)
             return 1
 
-        logger.info("=== xianyu-radar 启动 ===")
+        logger.info("=== goofish-radar 启动 ===")
         for line in human_readable(cfg).splitlines():
             logger.info("  %s", line)
 
@@ -140,7 +140,7 @@ def main() -> int:
         logger.info("收到 Ctrl+C，优雅退出")
     finally:
         lock.release()
-        logger.info("=== xianyu-radar 已退出 ===")
+        logger.info("=== goofish-radar 已退出 ===")
     return 0
 
 
