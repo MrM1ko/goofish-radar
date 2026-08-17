@@ -28,6 +28,12 @@
     }
   ],
 
+  "login": {
+    "enabled": true,
+    "username": "你的闲鱼账号（手机号/邮箱）",
+    "password": "你的闲鱼密码"
+  },
+
   "buy": {
     "enabled": true,
     "daily_limit": 3,

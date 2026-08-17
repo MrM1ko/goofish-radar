@@ -78,6 +78,19 @@ class MonitorConfig:
 
 
 @dataclass
+class LoginConfig:
+    """闲鱼账号密码登录（登录被风控拦截时的自动重登）。
+
+    enabled=true 且 username/password 均非空时，会话失效优先用
+    账号密码登录；失败或未配置时回退扫码登录。
+    """
+
+    enabled: bool = False
+    username: str = ""
+    password: str = ""
+
+
+@dataclass
 class BuyConfig:
     enabled: bool = True
     daily_limit: int = 3
@@ -109,6 +122,7 @@ class AppConfig:
     poll_interval_minutes: int = 5
     search: SearchConfig = field(default_factory=SearchConfig)
     monitors: list[MonitorConfig] = field(default_factory=list)
+    login: LoginConfig = field(default_factory=LoginConfig)
     buy: BuyConfig = field(default_factory=BuyConfig)
     ai: AiConfig = field(default_factory=AiConfig)
     smtp: SmtpConfig = field(default_factory=SmtpConfig)
@@ -212,8 +226,11 @@ def _parse(raw: dict[str, Any]) -> AppConfig:
 
     ai_raw = raw.get("ai", {})
     smtp_raw = raw.get("smtp", {})
+    login_raw = raw.get("login", {})
     if not isinstance(ai_raw, dict) or not isinstance(smtp_raw, dict):
         raise ConfigError("ai 和 smtp 必须是对象")
+    if not isinstance(login_raw, dict):
+        raise ConfigError("login 必须是一个对象")
     to = smtp_raw.get("to", [])
     if not isinstance(to, list) or not all(isinstance(x, str) for x in to):
         raise ConfigError("smtp.to 必须是字符串数组")
@@ -232,6 +249,11 @@ def _parse(raw: dict[str, Any]) -> AppConfig:
             screenshot=bool(search.get("screenshot", False)),
         ),
         monitors=monitors,
+        login=LoginConfig(
+            enabled=bool(login_raw.get("enabled", False)),
+            username=str(login_raw.get("username", "")),
+            password=str(login_raw.get("password", "")),
+        ),
         buy=BuyConfig(
             enabled=bool(raw.get("buy", {}).get("enabled", True)),
             daily_limit=_get_int("buy", "daily_limit", 3, 0),
@@ -275,6 +297,11 @@ def _validate(cfg: AppConfig) -> None:
         if missing:
             raise ConfigError(f"ai.enabled=true 但缺少配置: {', '.join(missing)}")
 
+    if cfg.login.enabled:
+        missing = [k for k, v in (("username", cfg.login.username), ("password", cfg.login.password)) if not v]
+        if missing:
+            raise ConfigError(f"login.enabled=true 但缺少配置: {', '.join(missing)}")
+
     if cfg.smtp.enabled:
         missing = [k for k, v in (("host", cfg.smtp.host), ("user", cfg.smtp.user), ("password", cfg.smtp.password)) if not v]
         if missing:
@@ -283,12 +310,21 @@ def _validate(cfg: AppConfig) -> None:
             raise ConfigError("smtp.to 收件人列表为空")
 
 
+def _mask_account(username: str) -> str:
+    """账号打码显示：138****1234，避免日志泄露完整账号。"""
+    if len(username) <= 4:
+        return username[:1] + "***"
+    return username[:3] + "****" + username[-4:]
+
+
 def human_readable(cfg: AppConfig) -> str:
     """生成不泄露密钥的配置摘要，用于启动日志。"""
     lines = [
         f"轮询间隔: {cfg.poll_interval_minutes} 分钟",
         f"扫描上限: {cfg.search.max_scan_items} 条",
         f"监控任务: {len(cfg.enabled_monitors())}/{len(cfg.monitors)} 个启用",
+        f"登录方式: {'账号密码' if cfg.login.enabled else '扫码登录'}"
+        f"{'（' + _mask_account(cfg.login.username) + '）' if cfg.login.enabled else ''}",
         f"拍单: {'开启' if cfg.buy.enabled else '关闭'} "
         f"(每日上限 {cfg.buy.daily_limit} 单, 间隔 {cfg.buy.order_interval_minutes} 分钟)",
         f"AI 过滤: {'开启 (' + cfg.ai.model + ')' if cfg.ai.enabled else '关闭'}",

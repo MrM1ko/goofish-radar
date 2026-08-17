@@ -2,7 +2,7 @@
 
 > 闲鱼低价新品监控 + 描述过滤 + 自动生成待付款订单的常驻后台工具（Windows）
 
-**当前状态：v0.1 已实现核心代码，选择器待 `probe.py` 实测固化（见下方"上线前必做"）**
+**当前状态：v0.1 核心链路已按 2026-08 真实页面实测固化（搜索 / 详情 / 下单 / 登录状态检测），并支持账号密码自动重登**
 
 ## 它是做什么的
 
@@ -19,7 +19,8 @@
 - **三层过滤**：商品身份过滤（空盒/配件/求购/租赁等）→ 规则词表（损坏/引流）→ AI 语义判断（可选）
 - **自动拍单**：对通过过滤且价格低于阈值的商品，自动创建**待付款订单**
 - **绝不自动付款**：拍下即停在待付款状态，由你人工确认商品、卖家、价格后决定是否付款
-- **邮件通知**：新商品、拍单结果、AI 异常、登录失效、风控暂停等事件实时通知
+- **邮件通知**：只在真正执行下单动作后通知（成功/失败/状态无法确认），邮件标题即「关键词 + 价格」；另有风控暂停、初始化完成等一次性告警
+- **登录失效自动重登**：会话过期或搜索被风控重定向到登录页时，优先用配置的账号密码自动重新登录（headless 下自动切有头），失败则回退扫码登录
 
 ## 核心安全边界
 
@@ -40,9 +41,11 @@ uv sync
 uv run playwright install chromium
 
 # 2. 配置
-cp config/config.example.json config/config.json   # 填写邮箱授权码、AI key 等
+cp config/config.example.json config/config.json
+#   填写邮箱授权码；如需"账号密码自动重登"，把 login 段 enabled 置为
+#   true 并填 username / password（不配置则仅用扫码登录）
 
-# 3. 首次登录（有头浏览器扫码，会话自动保存）
+# 3. 登录（有头浏览器；配置了账号密码则优先自动登录，失败回退扫码，会话自动保存）
 uv run python scripts/login.py
 
 # 4. 页面选择器实测（页面改版或首次部署前必做）
@@ -60,13 +63,13 @@ uv run python run.py        # Ctrl+C 优雅退出
 ├── pyproject.toml        # uv 依赖与 pytest 配置
 ├── config/               # config.json + 三份词表
 ├── browser/
-│   ├── selectors.py      # 全部页面选择器集中管理（待实测固化）
-│   ├── session.py        # 登录/会话复用/风控识别
+│   ├── selectors.py      # 全部页面选择器集中管理（2026-08 实测固化）
+│   ├── session.py        # 登录/会话复用/风控识别/账号密码自动重登
 │   ├── searcher.py       # 搜索 + 最新排序 + 扫描边界
 │   ├── detail.py         # 详情页读取 + 多规格检测
 │   └── order.py          # 创建待付款订单（绝不支付）
 ├── core/
-│   ├── config.py         # 配置加载与校验
+│   ├── config.py         # 配置加载与校验（含账号密码登录段）
 │   ├── models.py         # 数据模型
 │   ├── dedupe.py         # 全局 item_id 去重
 │   ├── pipeline.py       # 主流程编排
@@ -77,9 +80,9 @@ uv run python run.py        # Ctrl+C 优雅退出
 │   └── notifier/         # 邮件通知（可扩展其他渠道）
 ├── scripts/
 │   ├── probe.py          # 页面结构/选择器实测
-│   └── login.py          # 手动扫码登录
+│   └── login.py          # 手动登录（账号密码优先，失败回退扫码）
 ├── data/                 # 运行时数据（已 gitignore）
-└── tests/                # 45 个纯逻辑单测
+└── tests/                # 75 个纯逻辑单测
 ```
 
 完整设计见 [design/DESIGN_v5.md](design/DESIGN_v5.md)。
@@ -92,11 +95,12 @@ uv run pytest   # 纯逻辑测试，不依赖浏览器
 
 ## 上线前必做（按顺序）
 
-1. `python scripts/login.py` 完成扫码登录；
-2. `python scripts/probe.py` 实测当前闲鱼页面，把命中的选择器固化到 `browser/selectors.py` 各候选列表首位；
-3. 测试环境：`config.json` 中 `headless=false`、`buy.enabled=false`，人工观察搜索/详情/过滤/通知；
-4. 拍单验证：`daily_limit=1`，人工全程观察一次下单，确认生成待付款订单且**无任何支付动作**；
-5. 确认无误后切回 `headless=true` 常驻运行。
+1. 配置 `config.json`：邮箱授权码必填；如需账号密码自动重登，开启 `login.enabled` 并填写 `username` / `password`；
+2. `uv run python scripts/login.py` 完成登录并保存会话；运行期间会话失效时程序会自动重登，无需人工干预；
+3. 页面改版或长时间未运行后，用 `uv run python scripts/probe.py "关键词"` 复核选择器是否仍命中（已固化的选择器日常无需此步）；
+4. 测试环境：`config.json` 中 `headless=false`、`buy.enabled=false`，人工观察搜索/详情/过滤/通知；
+5. 拍单验证：`daily_limit=1`，人工全程观察一次下单，确认生成待付款订单且**无任何支付动作**；
+6. 确认无误后切回 `headless=true` 常驻运行。
 
 ## 安全与合规声明
 

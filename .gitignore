@@ -1,5 +1,6 @@
 # Reasonix 会话数据
 .reasonix/
+reasonix.toml
 
 # 密钥与本地配置（见 design/DESIGN_v5.md 第 32 节）
 config/config.json

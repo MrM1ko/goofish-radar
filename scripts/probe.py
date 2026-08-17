@@ -49,9 +49,7 @@ def probe_search_page(session: Session, keyword: str) -> None:
     print(f"    当前 URL: {page.url}")
     print(f"    页面标题: {page.title()}")
 
-    print("\n[2] 登录状态探测:")
-    if session._has_login_cookie():
-        print("    Cookie 判定: 已登录")
+    print("\n[2] 登录状态探测（Cookie 匿名也会种不可靠，仅看 DOM）:")
     for css in session.selectors.logged_in_mark:
         try:
             n = page.locator(css).count()

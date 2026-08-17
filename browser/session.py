@@ -13,12 +13,14 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from pathlib import Path
 
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 
 from browser.selectors import Selectors, pick
+from core.config import LoginConfig
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,17 @@ LOGIN_URL = "https://www.goofish.com/login"
 
 # 用户扫码等待时长（秒）
 LOGIN_TIMEOUT_SECONDS = 180
+
+# 登录 iframe 特征（实测 2026-08：密码登录表单在 passport.goofish.com mini_login 内）
+_LOGIN_FRAME_URL_MARKS = ("mini_login", "passport.goofish.com")
+
+# 密码登录表单元素（实测 2026-08 固化，见 selectors.py 注释约定）
+_PASSWORD_TAB = "a.password-login-tab-item"
+_LOGIN_ID_INPUT = "#fm-login-id"
+_LOGIN_PASSWORD_INPUT = "#fm-login-password"
+_LOGIN_SUBMIT_BUTTON = "button.fm-button.fm-submit.password-login"
+_AGREEMENT_CHECKBOX = "#fm-agreement-checkbox"
+_KEEP_LOGIN_BUTTON = "button.keep-login-confirm-btn.primary"
 
 
 class Session:
@@ -41,10 +54,12 @@ class Session:
         storage_path: Path,
         headless: bool = True,
         selectors: Selectors | None = None,
+        login: LoginConfig | None = None,
     ):
         self.storage_path = storage_path
         self.headless = headless
         self.selectors = selectors or Selectors()
+        self.login = login
         self._pw = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -96,7 +111,7 @@ class Session:
     # ------------------------------------------------------------- 登录
 
     def ensure_logged_in(self) -> bool:
-        """验证登录状态；未登录则切有头模式引导扫码。
+        """验证登录状态；未登录则尝试登录（账号密码优先，失败回退扫码）。
 
         返回 True 表示会话可用，False 表示用户放弃/超时（本轮应退出）。
         """
@@ -104,16 +119,51 @@ class Session:
         if self._check_logged_in():
             return True
 
-        logger.warning("未登录或登录已失效，尝试引导扫码登录")
+        logger.warning("未登录或登录已失效，尝试自动登录")
+        return self.re_login()
+
+    def re_login(self) -> bool:
+        """会话失效后的重新登录：配置了账号密码则优先，失败回退扫码。"""
+        if self.login is not None and self.login.enabled:
+            if self._login_via_password():
+                return True
+            logger.warning("账号密码登录失败，回退扫码登录")
         return self._login_via_qrcode()
 
-    def _check_logged_in(self) -> bool:
-        """打开首页判断登录状态（任一信号命中即视为已登录）：
+    def detect_login_required(self) -> bool:
+        """当前页面是否被登录拦截（搜索时被风控重定向到登录页）。
 
-          1. Cookie 层面：存在阿里登录态 Cookie（unb / _m_h5_tk / cookie2）
-             —— 扫码成功后由页面写入，比 DOM 元素可靠；
-          2. 页面存在用户头像等元素；
-          3. 页面不存在精确文本"登录"的入口。
+        信号（任一命中即需要登录）：
+          1. 当前 URL 是登录/认证路径（/login、passport）；
+          2. 页面出现登录 iframe（passport.goofish.com mini_login）。
+
+        注意：阿里系 Cookie（unb/_m_h5_tk/cookie2）匿名访问也会种，
+        不能作为登录态信号（2026-08 实测假阳性），此处不参考 Cookie。
+        """
+        assert self.page is not None, "Session 未启动"
+        try:
+            url = self.page.url or ""
+        except Exception:
+            url = ""
+        if re.search(r"/(?:login|passport)", url):
+            return True
+        try:
+            for frame in self.page.frames:
+                if any(mark in frame.url for mark in _LOGIN_FRAME_URL_MARKS):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _check_logged_in(self) -> bool:
+        """打开首页判断登录状态（2026-08 实测修正）：
+
+          1. 否定信号优先：页面存在"立即登录"入口（login_entry）→ 未登录；
+          2. 肯定信号：顶栏昵称区显示昵称（logged_in_mark，排除匿名占位文本"登录"）。
+
+        注意：阿里系 Cookie（unb/_m_h5_tk/cookie2）匿名访问也会种，
+        商品卡卖家头像（[class*="avatar"]）匿名页也有 20 个，均不可作为
+        登录信号——曾导致假阳性"登录成功"（2026-08 实测）。
         """
         try:
             self.page.goto(HOME_URL, wait_until="domcontentloaded", timeout=30_000)
@@ -121,34 +171,167 @@ class Session:
         except Exception as e:
             logger.warning("打开首页失败，暂按未登录处理: %s", e)
             return False
-        if self._has_login_cookie():
-            return True
-        for css in self.selectors.logged_in_mark:
-            try:
-                if self.page.locator(css).count() > 0:
-                    return True
-            except Exception:
-                continue
         for css in self.selectors.login_entry:
             try:
                 if self.page.locator(css).count() > 0:
-                    logger.debug("检测到登录入口，判定未登录")
+                    logger.debug("检测到'立即登录'入口，判定未登录")
                     return False
+            except Exception:
+                continue
+        return self._has_logged_in_mark()
+
+    def _has_logged_in_mark(self) -> bool:
+        """当前页面是否出现登录成功标识（昵称区文本非"登录"占位）。"""
+        assert self.page is not None, "Session 未启动"
+        for css in self.selectors.logged_in_mark:
+            try:
+                locator = self.page.locator(css)
+                for i in range(min(locator.count(), 5)):
+                    text = (locator.nth(i).inner_text() or "").strip()
+                    if text and "登录" not in text and "立即登录" not in text:
+                        return True
             except Exception:
                 continue
         return False
 
-    def _has_login_cookie(self) -> bool:
-        """检查当前 context 是否存在代表登录态的 Cookie。"""
-        assert self._context is not None, "Session 未启动"
-        login_cookies = {"unb", "_m_h5_tk", "cookie2", "sgcookie"}
+    def _login_via_password(self) -> bool:
+        """账号密码登录（实测结构 2026-08，见模块顶部常量注释）。
+
+        流程：打开闲鱼登录页 → 进入登录 iframe → 切"密码登录"tab
+        → 填账号密码 → 勾选协议 → 点登录 → 轮询结果（自动处理
+        "保持登录"弹层；滑块/短信验证需人工，等待期间持续轮询；
+        密码错误等明确失败提示则提前返回 False）。
+        成功后保存 storage_state，会话可复用。
+        """
+        assert self.login is not None and self.login.username and self.login.password
+
+        if self.headless:
+            # headless 会被闲鱼 baxia 风控拒绝，切有头（与 start() 注释一致）
+            self.close()
+            self.headless = False
+            self.start()
+        assert self.page is not None, "Session 未启动"
+
+        logger.info("打开登录页，使用账号密码登录: %s", self._mask_username(self.login.username))
+        self.page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=30_000)
+        self.page.wait_for_timeout(3000)
+
+        frame = self._find_login_frame()
+        if frame is None:
+            logger.error("未找到登录 iframe（页面结构可能变化），账号密码登录失败")
+            return False
+
         try:
-            for cookie in self._context.cookies():
-                if cookie.get("name") in login_cookies:
-                    return True
+            tab = frame.locator(_PASSWORD_TAB)
+            if tab.count() > 0:
+                tab.first.click()
+                self.page.wait_for_timeout(1500)
+        except Exception as e:
+            logger.warning("切换'密码登录'tab 失败: %s", e)
+
+        try:
+            frame.locator(_LOGIN_ID_INPUT).fill(self.login.username)
+            frame.locator(_LOGIN_PASSWORD_INPUT).fill(self.login.password)
+        except Exception as e:
+            logger.error("填写账号/密码失败（登录表单结构可能变化）: %s", e)
+            return False
+
+        try:
+            checkbox = frame.locator(_AGREEMENT_CHECKBOX)
+            if checkbox.count() > 0 and not checkbox.is_checked():
+                checkbox.check()
         except Exception:
             pass
+
+        try:
+            submit = frame.locator(_LOGIN_SUBMIT_BUTTON)
+            if submit.count() == 0:
+                submit = frame.locator("button.fm-submit:has-text('登录')")
+            submit.first.click()
+        except Exception as e:
+            logger.error("点击登录按钮失败: %s", e)
+            return False
+
+        deadline = time.time() + LOGIN_TIMEOUT_SECONDS
+        slider_hint_logged = False
+        while time.time() < deadline:
+            # "保持登录"弹层（登录成功后出现，点"保持"）
+            try:
+                keep = frame.locator(_KEEP_LOGIN_BUTTON)
+                if keep.count() > 0 and keep.first.is_visible():
+                    keep.first.click()
+                    self.page.wait_for_timeout(1000)
+            except Exception:
+                pass
+
+            # 明确失败提示（密码错误/账号不存在等）→ 提前失败，回退扫码
+            error_text = self._login_error_text(frame)
+            if error_text:
+                logger.error("账号密码登录失败，页面提示: %s", error_text)
+                return False
+
+            # 滑块/短信验证码提示（一次即可，等用户在有头窗口人工完成）
+            if not slider_hint_logged and self._slider_visible(frame):
+                logger.info("检测到滑块/安全验证，请在浏览器窗口中人工完成（剩余等待时间内的轮询会自动继续）")
+                slider_hint_logged = True
+
+            # 成功信号：跳回首页完整确认（否定信号优先，避免假阳性）
+            if self._check_logged_in():
+                self.save_storage()
+                logger.info("账号密码登录成功，会话已保存到 %s", self.storage_path)
+                return True
+
+            self.page.wait_for_timeout(2000)
+
+        logger.error("账号密码登录超时（可能卡在滑块/短信验证未完成）")
         return False
+
+    def _find_login_frame(self):
+        """返回登录 iframe（无则 None）。"""
+        assert self.page is not None, "Session 未启动"
+        for frame in self.page.frames:
+            if any(mark in frame.url for mark in _LOGIN_FRAME_URL_MARKS):
+                return frame
+        return None
+
+    def _login_error_text(self, frame) -> str | None:
+        """登录 iframe 内的明确错误提示文本（如密码错误）；无则 None。"""
+        keywords = ("密码", "账号", "错误", "不正确", "不存在", "频繁", "失败", "受限")
+        for css in ("#fm-login-error", "[class*='fm-error']", "[class*='error']", "[class*='Error']"):
+            try:
+                locator = frame.locator(css)
+                for i in range(min(locator.count(), 8)):
+                    text = (locator.nth(i).inner_text() or "").strip()
+                    if text and any(k in text for k in keywords):
+                        return text[:120]
+            except Exception:
+                continue
+        return None
+
+    def _slider_visible(self, frame) -> bool:
+        """登录 iframe 内是否出现滑块/安全验证组件。"""
+        for css in (
+            "#nc_1_captcha_input",
+            "#nc_2_captcha_input",
+            "[class*='nc-container']",
+            "[class*='baxia-dialog']",
+            "text=安全验证",
+            "text=拖动滑块",
+        ):
+            try:
+                locator = frame.locator(css)
+                if locator.count() > 0 and locator.first.is_visible():
+                    return True
+            except Exception:
+                continue
+        return False
+
+    @staticmethod
+    def _mask_username(username: str) -> str:
+        """账号打码，避免日志泄露完整账号。"""
+        if len(username) <= 4:
+            return username[:1] + "***"
+        return username[:3] + "****" + username[-4:]
 
     def _login_via_qrcode(self) -> bool:
         """切换有头模式打开登录页，等待用户扫码。
@@ -185,13 +368,7 @@ class Session:
 
     def _check_logged_in_on_current_page(self) -> bool:
         """不导航，仅检查当前页面是否出现登录成功标识。"""
-        for css in self.selectors.logged_in_mark:
-            try:
-                if self.page.locator(css).count() > 0:
-                    return True
-            except Exception:
-                continue
-        return False
+        return self._has_logged_in_mark()
 
     def save_storage(self) -> None:
         """登录成功后保存会话，后续运行无需重复登录。"""

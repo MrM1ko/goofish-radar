@@ -22,6 +22,7 @@ VALID = {
         {"name": "m2", "keyword": "RTX 4070", "enabled": False},
     ],
     "buy": {"enabled": True, "daily_limit": 3, "order_interval_minutes": 20},
+    "login": {"enabled": False, "username": "", "password": ""},
     "ai": {"enabled": False, "base_url": "", "model": "", "api_key": "", "timeout_seconds": 20},
     "smtp": {"enabled": False, "host": "", "port": 465, "use_ssl": True,
              "user": "", "password": "", "to": []},
@@ -91,6 +92,36 @@ def test_smtp_enabled_requires_recipient(tmp_path):
         load_config(write_cfg(tmp_path, raw))
 
 
+def test_login_parsed(tmp_path):
+    raw = json.loads(json.dumps(VALID))
+    raw["login"] = {"enabled": True, "username": "13800001234", "password": "secret"}
+    cfg = load_config(write_cfg(tmp_path, raw))
+    assert cfg.login.enabled is True
+    assert cfg.login.username == "13800001234"
+    assert cfg.login.password == "secret"
+
+
+def test_login_enabled_requires_credentials(tmp_path):
+    raw = json.loads(json.dumps(VALID))
+    raw["login"] = {"enabled": True, "username": "", "password": ""}
+    with pytest.raises(ConfigError, match="username"):
+        load_config(write_cfg(tmp_path, raw))
+
+
+def test_login_enabled_requires_password(tmp_path):
+    raw = json.loads(json.dumps(VALID))
+    raw["login"] = {"enabled": True, "username": "u", "password": ""}
+    with pytest.raises(ConfigError, match="password"):
+        load_config(write_cfg(tmp_path, raw))
+
+
+def test_login_non_object_rejected(tmp_path):
+    raw = json.loads(json.dumps(VALID))
+    raw["login"] = "not-an-object"
+    with pytest.raises(ConfigError, match="login"):
+        load_config(write_cfg(tmp_path, raw))
+
+
 def test_negative_daily_limit_rejected(tmp_path):
     raw = json.loads(json.dumps(VALID))
     raw["buy"]["daily_limit"] = -1
@@ -116,7 +147,9 @@ def test_human_readable_no_secrets(tmp_path):
     raw["ai"]["api_key"] = "SK-SECRET"
     raw["ai"]["base_url"] = "https://api.deepseek.com/v1"
     raw["ai"]["model"] = "deepseek-chat"
+    raw["login"] = {"enabled": True, "username": "13800001234", "password": "LOGIN_SECRET"}
     cfg = load_config(write_cfg(tmp_path, raw))
     text = __import__("core.config", fromlist=["human_readable"]).human_readable(cfg)
     assert "SHOULD_NOT_APPEAR" not in text
     assert "SK-SECRET" not in text
+    assert "LOGIN_SECRET" not in text

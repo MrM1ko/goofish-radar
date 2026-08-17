@@ -5,7 +5,8 @@ Pipeline 只负责编排，具体能力全部通过构造参数注入，
 
   对每个 monitor:
     搜索 → 排序 → 扫描新品 → 全局去重 → 详情 → 身份过滤
-    → 规则过滤 → AI 过滤 → 价格/多规格判断 → 拍单决策 → 通知
+    → 规则过滤 → AI 过滤 → 价格/多规格判断 → 拍单决策
+    → 仅当真正执行下单后才发邮件通知（标题 = 关键词 + 价格）
 
 风控处理（验证码）：记录暂停 30 分钟 → 邮件 → 本轮立即退出，不无限重试。
 首次运行：建立 seen 基线，只记录不拍单，发送初始化完成通知。
@@ -58,19 +59,38 @@ class Pipeline:
         self.session = session
 
         selectors = session.selectors
+        self._bound_page = session.page
         self.searcher = Searcher(
-            session.page, selectors, max_scan_items=cfg.search.max_scan_items
+            self._bound_page, selectors, max_scan_items=cfg.search.max_scan_items
         )
-        self.detail_reader = DetailReader(session.page, selectors)
+        self.detail_reader = DetailReader(self._bound_page, selectors)
 
         self.identity_filter = IdentityFilter()
         self.rule_filter = RuleFilter()
         self.ai_filter = AiFilter(cfg.ai)
 
+    # ------------------------------------------------------------- 会话组件
+
+    def _refresh_components(self) -> None:
+        """Session 重开浏览器（扫码登录路径）后 page 已更换，重建绑定新 page 的组件。
+
+        账号密码登录复用原 page，无需重建；此处幂等，可每轮调用。
+        """
+        if self.session.page is self._bound_page:
+            return
+        self._bound_page = self.session.page
+        selectors = self.session.selectors
+        self.searcher = Searcher(
+            self._bound_page, selectors, max_scan_items=self.cfg.search.max_scan_items
+        )
+        self.detail_reader = DetailReader(self._bound_page, selectors)
+        logger.info("浏览器会话已重开，搜索/详情组件已重新绑定页面")
+
     # ------------------------------------------------------------- 一轮执行
 
     def run_once(self) -> None:
         """执行一轮完整扫描（所有启用的 monitor）。"""
+        self._refresh_components()
         if self.runtime.is_paused():
             logger.warning("RUNTIME_PAUSED 暂停中: %s，本轮跳过", self.runtime.pause_reason)
             return
@@ -90,6 +110,20 @@ class Pipeline:
         # 搜索前随机延时，降低机械感
         self.searcher.random_delay(*self.cfg.search.random_delay_seconds)
         self.searcher.search(monitor.keyword, self.cfg.search.sort)
+
+        # 登录拦截（风控把搜索重定向到登录页）→ 自动重新登录后重搜一次
+        if self.session.detect_login_required():
+            logger.warning(
+                "monitor=%s 搜索被登录拦截（风控），尝试自动重新登录", monitor.name
+            )
+            if not self.session.re_login():
+                logger.error("monitor=%s 重新登录失败，本轮跳过", monitor.name)
+                return
+            self._refresh_components()
+            self.searcher.search(monitor.keyword, self.cfg.search.sort)
+            if self.session.detect_login_required():
+                logger.error("monitor=%s 重新登录后仍被登录拦截，本轮跳过", monitor.name)
+                return
 
         # 风控：验证码 → 暂停 + 通知 + 本轮退出
         if self.session.detect_captcha():
@@ -131,12 +165,12 @@ class Pipeline:
             "discovered", item_id=product.item_id, price=product.price, title=product.title
         )
 
-        # 详情读取（失败 → 不自动拍，仅通知，设计文档第 25 节）
+        # 详情读取（失败 → 不自动拍、不通知，仅记录，设计文档第 25 节）
         detail: DetailResult | None = self.detail_reader.read(product.url)
         if detail is not None and detail.failed:
             detail = None
             self.history.append("detail_failed", item_id=product.item_id)
-            self._notify_product(product, monitor, FilterResult(passed=True, reasons=["详情读取失败"]), detail)
+            logger.info("monitor=%s item=%s 详情读取失败，跳过", monitor.name, product.item_id)
             return
 
         # 三层过滤
@@ -159,8 +193,11 @@ class Pipeline:
             result = self.orderer.execute(product, monitor)
             self._handle_order_result(product, monitor, result)
         else:
-            # 通知新商品（含不满足拍单条件的原因与 AI 检查状态）
-            self._notify_product(product, monitor, filter_result, detail, decision.reason)
+            # 未满足拍单条件：不发邮件，仅留日志（history 已有 filter 事件可审计）
+            logger.info(
+                "monitor=%s item=%s 未下单: %s",
+                monitor.name, product.item_id, decision.reason,
+            )
 
     # ------------------------------------------------------------- 过滤
 
@@ -196,7 +233,7 @@ class Pipeline:
         if status == "success":
             logger.info("ORDER_SUCCESS item=%s order_id=%s", product.item_id, result.order_id)
             self._notify(
-                "goofish-radar 拍单成功",
+                f"{monitor.keyword} ¥{product.price}",
                 f"已生成待付款订单，请人工检查后决定是否付款。\n\n"
                 f"标题: {product.title}\n"
                 f"价格: ¥{product.price}\n"
@@ -206,14 +243,15 @@ class Pipeline:
         elif status == "unknown":
             logger.warning("ORDER_UNKNOWN item=%s", product.item_id)
             self._notify(
-                "goofish-radar 订单状态无法确认",
+                f"{monitor.keyword} ¥{product.price}",
                 f"订单提交后状态无法确认，请人工检查闲鱼待付款列表。\n\n"
                 f"标题: {product.title}\n链接: {product.url}\n原因: {result.reason}",
             )
         else:
             logger.warning("ORDER_FAILED item=%s reason=%s", product.item_id, result.reason)
             self._notify(
-                "goofish-radar 拍单失败",
+                f"{monitor.keyword} ¥{product.price}",
+                f"拍单失败。\n\n"
                 f"标题: {product.title}\n链接: {product.url}\n原因: {result.reason}",
             )
 
@@ -239,25 +277,4 @@ class Pipeline:
         except Exception as e:
             logger.error("通知异常: %s", e)
 
-    def _notify_product(
-        self,
-        product: Product,
-        monitor,
-        filter_result: FilterResult,
-        detail: DetailResult | None,
-        extra_reason: str | None = None,
-    ) -> None:
-        """新商品邮件（设计文档第 19.1 节）。"""
-        ai_status = "已执行，通过" if filter_result.ai_checked else "未执行 / 失败降级"
-        lines = [
-            f"监控任务: {monitor.name}（{monitor.keyword}）",
-            f"标题: {product.title}",
-            f"价格: ¥{product.price}",
-            f"链接: {product.url}",
-            f"描述: {(detail.desc if detail else product.desc) or '（无）'}",
-            f"过滤结果: {'；'.join(filter_result.reasons)}",
-            f"AI 检查状态: {ai_status}",
-        ]
-        if extra_reason:
-            lines.append(f"是否满足自动拍条件: 否（{extra_reason}）")
-        self._notify("goofish-radar 发现新商品", "\n".join(lines))
+

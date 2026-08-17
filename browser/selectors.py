@@ -97,16 +97,20 @@ class Selectors:
         '.search-select-item--H_AJBURX:has-text("最新")',
         '[class*="search-select-item"]:has-text("最新")',
     ]
-    # 登录状态（实测：已登录页面 avatar 元素 30 个命中）
+    # 登录状态（2026-08 实测修正）：
+    #   - 未登录：顶栏出现"立即登录"按钮（text=立即登录，已登录页面 0 命中）；
+    #   - 已登录：顶栏昵称区显示昵称（[class*="nick--"]）。
+    # ⚠️ 注意：[class*="avatar"] 会命中商品卡片的卖家头像，匿名页也有 20 个，
+    #    不可作为登录信号（曾导致假阳性"登录成功"）；"text=登录"已登录页
+    #    侧边栏也有 1 处，同样不可用。
     logged_in_mark: list[str] = [
-        '[class*="avatar"]',
-        'img[class*="avatar"]',
+        '[class*="nick--"]',
         '[class*="userCenter"]',
         '[class*="my-account"]',
     ]
     login_entry: list[str] = [
-        'text=登录',
-        'a[href*="/login"]',
+        'text=立即登录',
+        '[class*="btn--"]:has-text("立即登录")',
     ]
     # 风控
     captcha_mark: list[str] = [
