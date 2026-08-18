@@ -56,5 +56,10 @@
     "user": "you@qq.com",
     "password": "授权码",
     "to": ["you@qq.com"]
+  },
+
+  "clawbot": {
+    "enabled": false,
+    "chat_id": "o9cq8010mjUo90yQm-sKl5bu7OI8@im.wechat"
   }
 }

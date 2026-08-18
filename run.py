@@ -32,6 +32,7 @@ from core.config import (  # noqa: E402
 )
 from core.dedupe import DedupeStore  # noqa: E402
 from core.history import HistoryStore  # noqa: E402
+from core.notifier.clawbot import ClawbotNotifier  # noqa: E402
 from core.notifier.email import EmailNotifier  # noqa: E402
 from core.orderer import Orderer, OrderStore  # noqa: E402
 from core.pipeline import Pipeline  # noqa: E402
@@ -84,14 +85,18 @@ def build_components(cfg: AppConfig, session: Session) -> Pipeline:
     order_creator = OrderCreator(session.page, session.selectors)
     orderer = Orderer(order_store, cfg.buy, order_creator)
 
-    notifier = EmailNotifier(cfg.smtp) if cfg.smtp.enabled else None
+    notifiers = []
+    if cfg.smtp.enabled:
+        notifiers.append(EmailNotifier(cfg.smtp))
+    if cfg.clawbot.enabled:
+        notifiers.append(ClawbotNotifier(cfg.clawbot))
 
     return Pipeline(
         cfg=cfg,
         dedupe=dedupe,
         history=history,
         orderer=orderer,
-        notifier=notifier,
+        notifiers=notifiers,
         runtime=runtime,
         session=session,
     )

@@ -6,9 +6,12 @@ Pipeline 只负责编排，具体能力全部通过构造参数注入，
   对每个 monitor:
     搜索 → 排序 → 扫描新品 → 全局去重 → 详情 → 身份过滤
     → 规则过滤 → AI 过滤 → 价格/多规格判断 → 拍单决策
-    → 仅当真正执行下单后才发邮件通知（标题 = 关键词 + 价格）
+    → 过滤通过即发「新商品」邮件（与 auto_order 无关）；
+      真正执行下单后再发「拍单结果」邮件（标题 = 关键词 + 价格）
 
-风控处理（验证码）：记录暂停 30 分钟 → 邮件 → 本轮立即退出，不无限重试。
+风控处理：
+  - 验证码/滑块：记录暂停 30 分钟 → 邮件 → 本轮立即退出，不无限重试。
+  - 登录拦截（搜索空白/重定向登录页）：发风控邮件 → 自动重登后重搜。
 首次运行：建立 seen 基线，只记录不拍单，发送初始化完成通知。
 """
 
@@ -46,7 +49,7 @@ class Pipeline:
         dedupe: DedupeStore,
         history: HistoryStore,
         orderer: Orderer,
-        notifier: Notifier | None,
+        notifiers: list[Notifier],
         runtime: RuntimeState,
         session: Session,
     ):
@@ -54,7 +57,7 @@ class Pipeline:
         self.dedupe = dedupe
         self.history = history
         self.orderer = orderer
-        self.notifier = notifier
+        self.notifiers = notifiers
         self.runtime = runtime
         self.session = session
 
@@ -111,8 +114,9 @@ class Pipeline:
         self.searcher.random_delay(*self.cfg.search.random_delay_seconds)
         self.searcher.search(monitor.keyword, self.cfg.search.sort)
 
-        # 登录拦截（风控把搜索重定向到登录页）→ 自动重新登录后重搜一次
+        # 登录拦截（风控把搜索重定向到登录页）→ 发风控邮件 + 自动重新登录后重搜一次
         if self.session.detect_login_required():
+            self._handle_login_intercept(monitor.name)
             logger.warning(
                 "monitor=%s 搜索被登录拦截（风控），尝试自动重新登录", monitor.name
             )
@@ -177,6 +181,8 @@ class Pipeline:
         filter_result = self._run_filters(product, detail, monitor)
         if filter_result.passed:
             self.history.append("filter_passed", item_id=product.item_id)
+            # 符合筛选规则的商品即发邮件（与是否开启 auto_order 无关）
+            self._notify_new_product(product, detail, filter_result, monitor)
         else:
             self.history.append(
                 "filter_rejected", item_id=product.item_id, reasons=filter_result.reasons
@@ -222,6 +228,37 @@ class Pipeline:
             ai_notes=ai.ai_notes,
         )
 
+    # ------------------------------------------------------------- 新商品通知
+
+    def _notify_new_product(self, product, detail, filter_result, monitor) -> None:
+        """过滤通过（符合筛选规则）的新商品通知。
+
+        与是否开启 auto_order 无关：auto_order 关闭或未满足拍单条件时，
+        这是用户知晓符合条件商品的唯一渠道；开启并自动拍单时，
+        会先收到本通知，随后再收到拍单结果通知。
+        """
+        desc = (detail.desc if detail and detail.desc else None) or product.desc or ""
+        if len(desc) > 300:
+            desc = desc[:300] + "…"
+
+        if filter_result.ai_checked:
+            ai_status = "已通过"
+        elif filter_result.ai_notes:
+            ai_status = f"未完成（{filter_result.ai_notes}）"
+        else:
+            ai_status = "未启用"
+
+        body = (
+            f"发现符合筛选条件的新商品，请人工查看。\n\n"
+            f"关键词: {monitor.keyword}\n"
+            f"标题: {product.title}\n"
+            f"价格: ¥{product.price}\n"
+            f"链接: {product.url}\n"
+            f"描述: {desc or '（无）'}\n"
+            f"AI 检查: {ai_status}"
+        )
+        self._notify(f"{monitor.keyword} ¥{product.price} 新商品", body)
+
     # ------------------------------------------------------------- 下单结果
 
     def _handle_order_result(self, product, monitor, result) -> None:
@@ -266,15 +303,28 @@ class Pipeline:
             f"恢复时间: {self.runtime.paused_until}",
         )
 
+    def _handle_login_intercept(self, monitor_name: str) -> None:
+        """搜索被登录拦截时的风控通知。
+
+        搜索后无返回结果（页面空白/被重定向到登录页）通常意味着会话
+        被风控拦下，与验证码/滑块一样属于需要人工留意的风控信号。
+        """
+        self._notify(
+            "goofish-radar 风控拦截",
+            f"monitor={monitor_name} 搜索被登录拦截：搜索无返回结果（页面空白/"
+            f"被重定向到登录页），疑似触发风控。程序正在尝试自动重新登录。",
+        )
+
     # ------------------------------------------------------------- 通知
 
     def _notify(self, subject: str, body: str) -> None:
-        if self.notifier is None:
+        if not self.notifiers:
             logger.info("无通知渠道，跳过: %s", subject)
             return
-        try:
-            self.notifier.notify(subject, body)
-        except Exception as e:
-            logger.error("通知异常: %s", e)
+        for notifier in self.notifiers:
+            try:
+                notifier.notify(subject, body)
+            except Exception as e:
+                logger.error("通知异常 [%s]: %s", getattr(notifier, "name", "?"), e)
 
 

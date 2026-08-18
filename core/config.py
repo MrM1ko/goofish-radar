@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -118,6 +119,23 @@ class SmtpConfig:
 
 
 @dataclass
+class ClawbotConfig:
+    """微信 clawbot 推送（Reasonix bot control loopback API）。
+
+    认证 token 从用户级环境变量 REASONIX_BOT_CONTROL_TOKEN 读取，
+    禁止写入任何配置文件。chat_id 为接收消息的微信会话标识。
+    """
+
+    enabled: bool = False
+    api_url: str = "http://127.0.0.1:37913"
+    connection_id: str = "weixin-weixin"
+    domain: str = "weixin"
+    chat_id: str = ""
+    chat_type: str = "dm"
+    timeout_seconds: int = 30
+
+
+@dataclass
 class AppConfig:
     poll_interval_minutes: int = 5
     search: SearchConfig = field(default_factory=SearchConfig)
@@ -126,6 +144,7 @@ class AppConfig:
     buy: BuyConfig = field(default_factory=BuyConfig)
     ai: AiConfig = field(default_factory=AiConfig)
     smtp: SmtpConfig = field(default_factory=SmtpConfig)
+    clawbot: ClawbotConfig = field(default_factory=ClawbotConfig)
 
     def enabled_monitors(self) -> list[MonitorConfig]:
         return [m for m in self.monitors if m.enabled]
@@ -227,10 +246,13 @@ def _parse(raw: dict[str, Any]) -> AppConfig:
     ai_raw = raw.get("ai", {})
     smtp_raw = raw.get("smtp", {})
     login_raw = raw.get("login", {})
+    clawbot_raw = raw.get("clawbot", {})
     if not isinstance(ai_raw, dict) or not isinstance(smtp_raw, dict):
         raise ConfigError("ai 和 smtp 必须是对象")
     if not isinstance(login_raw, dict):
         raise ConfigError("login 必须是一个对象")
+    if not isinstance(clawbot_raw, dict):
+        raise ConfigError("clawbot 必须是一个对象")
     to = smtp_raw.get("to", [])
     if not isinstance(to, list) or not all(isinstance(x, str) for x in to):
         raise ConfigError("smtp.to 必须是字符串数组")
@@ -275,6 +297,15 @@ def _parse(raw: dict[str, Any]) -> AppConfig:
             password=str(smtp_raw.get("password", "")),
             to=[str(x) for x in to],
         ),
+        clawbot=ClawbotConfig(
+            enabled=bool(clawbot_raw.get("enabled", False)),
+            api_url=str(clawbot_raw.get("api_url", "http://127.0.0.1:37913")),
+            connection_id=str(clawbot_raw.get("connection_id", "weixin-weixin")),
+            domain=str(clawbot_raw.get("domain", "weixin")),
+            chat_id=str(clawbot_raw.get("chat_id", "")),
+            chat_type=str(clawbot_raw.get("chat_type", "dm")),
+            timeout_seconds=_get_int("clawbot", "timeout_seconds", 30, 1),
+        ),
     )
 
 
@@ -309,6 +340,14 @@ def _validate(cfg: AppConfig) -> None:
         if not cfg.smtp.to:
             raise ConfigError("smtp.to 收件人列表为空")
 
+    if cfg.clawbot.enabled:
+        if not cfg.clawbot.chat_id:
+            raise ConfigError("clawbot.enabled=true 但缺少 chat_id")
+        if not os.environ.get("REASONIX_BOT_CONTROL_TOKEN"):
+            raise ConfigError(
+                "clawbot.enabled=true 但缺少环境变量 REASONIX_BOT_CONTROL_TOKEN"
+            )
+
 
 def _mask_account(username: str) -> str:
     """账号打码显示：138****1234，避免日志泄露完整账号。"""
@@ -329,6 +368,7 @@ def human_readable(cfg: AppConfig) -> str:
         f"(每日上限 {cfg.buy.daily_limit} 单, 间隔 {cfg.buy.order_interval_minutes} 分钟)",
         f"AI 过滤: {'开启 (' + cfg.ai.model + ')' if cfg.ai.enabled else '关闭'}",
         f"邮件通知: {'开启' if cfg.smtp.enabled else '关闭'}",
+        f"微信通知: {'开启' if cfg.clawbot.enabled else '关闭'}",
     ]
     for m in cfg.enabled_monitors():
         auto = "自动拍" if m.auto_order else "仅通知"

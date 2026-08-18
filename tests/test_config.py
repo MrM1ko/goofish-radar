@@ -153,3 +153,39 @@ def test_human_readable_no_secrets(tmp_path):
     assert "SHOULD_NOT_APPEAR" not in text
     assert "SK-SECRET" not in text
     assert "LOGIN_SECRET" not in text
+
+
+def test_clawbot_default_disabled(tmp_path):
+    cfg = load_config(write_cfg(tmp_path, VALID))
+    assert cfg.clawbot.enabled is False
+
+
+def test_clawbot_enabled_requires_chat_id(tmp_path):
+    raw = json.loads(json.dumps(VALID))
+    raw["clawbot"] = {"enabled": True, "chat_id": ""}
+    with pytest.raises(ConfigError, match="chat_id"):
+        load_config(write_cfg(tmp_path, raw))
+
+
+def test_clawbot_enabled_requires_token_env(tmp_path, monkeypatch):
+    monkeypatch.delenv("REASONIX_BOT_CONTROL_TOKEN", raising=False)
+    raw = json.loads(json.dumps(VALID))
+    raw["clawbot"] = {"enabled": True, "chat_id": "someone@im.wechat"}
+    with pytest.raises(ConfigError, match="REASONIX_BOT_CONTROL_TOKEN"):
+        load_config(write_cfg(tmp_path, raw))
+
+
+def test_clawbot_enabled_with_token(tmp_path, monkeypatch):
+    monkeypatch.setenv("REASONIX_BOT_CONTROL_TOKEN", "a" * 64)
+    raw = json.loads(json.dumps(VALID))
+    raw["clawbot"] = {"enabled": True, "chat_id": "someone@im.wechat"}
+    cfg = load_config(write_cfg(tmp_path, raw))
+    assert cfg.clawbot.enabled is True
+    assert cfg.clawbot.chat_id == "someone@im.wechat"
+
+
+def test_clawbot_non_object_rejected(tmp_path):
+    raw = json.loads(json.dumps(VALID))
+    raw["clawbot"] = "not-an-object"
+    with pytest.raises(ConfigError, match="clawbot"):
+        load_config(write_cfg(tmp_path, raw))
