@@ -1,4 +1,4 @@
-"""config 单元测试：加载与校验。"""
+"""settings 单元测试：三份配置的加载与校验。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-from core.config import ConfigError, load_config
+from core.settings import ConfigError, load_config
 
 VALID = {
     "poll_interval_minutes": 5,
@@ -30,9 +30,25 @@ VALID = {
 
 
 def write_cfg(tmp_path, raw) -> Path:
-    path = tmp_path / "config.json"
-    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-    return path
+    parts = {
+        "search.json": {
+            "poll_interval_minutes": raw.get("poll_interval_minutes", 5),
+            "search": raw.get("search", {}),
+            "monitors": raw.get("monitors", []),
+        },
+        "account.json": {
+            "login": raw.get("login", {}),
+            "ai": raw.get("ai", {}),
+            "smtp": raw.get("smtp", {}),
+            "clawbot": raw.get("clawbot", {}),
+        },
+        "order.json": {"buy": raw.get("buy", {})},
+    }
+    for filename, content in parts.items():
+        (tmp_path / filename).write_text(
+            json.dumps(content, ensure_ascii=False), encoding="utf-8"
+        )
+    return tmp_path
 
 
 def test_valid_config_loads(tmp_path):
@@ -46,15 +62,15 @@ def test_valid_config_loads(tmp_path):
 
 
 def test_missing_file_raises(tmp_path):
-    with pytest.raises(ConfigError, match="配置文件不存在"):
+    with pytest.raises(ConfigError, match="配置目录不存在"):
         load_config(tmp_path / "nonexistent.json")
 
 
 def test_invalid_json_raises(tmp_path):
-    path = tmp_path / "config.json"
-    path.write_text("{not json", encoding="utf-8")
+    write_cfg(tmp_path, VALID)
+    (tmp_path / "search.json").write_text("{not json", encoding="utf-8")
     with pytest.raises(ConfigError, match="不是合法 JSON"):
-        load_config(path)
+        load_config(tmp_path)
 
 
 def test_empty_monitors_rejected(tmp_path):
@@ -149,7 +165,7 @@ def test_human_readable_no_secrets(tmp_path):
     raw["ai"]["model"] = "deepseek-chat"
     raw["login"] = {"enabled": True, "username": "13800001234", "password": "LOGIN_SECRET"}
     cfg = load_config(write_cfg(tmp_path, raw))
-    text = __import__("core.config", fromlist=["human_readable"]).human_readable(cfg)
+    text = __import__("core.settings", fromlist=["human_readable"]).human_readable(cfg)
     assert "SHOULD_NOT_APPEAR" not in text
     assert "SK-SECRET" not in text
     assert "LOGIN_SECRET" not in text

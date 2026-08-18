@@ -2,9 +2,10 @@
 .reasonix/
 reasonix.toml
 
-# 密钥与本地配置（见 design/DESIGN_v5.md 第 32 节）
-config/config.json
-config/*.local.json
+# 本地真实配置：整个 config 根目录下的 JSON 都不提交。
+# 可提交模板统一放在 config/examples/ 子目录。
+/config/*.json
+/config/*.local.json
 
 # 运行时数据
 data/

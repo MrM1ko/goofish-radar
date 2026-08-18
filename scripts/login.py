@@ -4,7 +4,7 @@
     python scripts/login.py
 
 流程：
-  - 若 config.json 的 login 段配置了账号密码（enabled=true），
+  - 若 account.json 的 login 段配置了账号密码（enabled=true），
     优先使用账号密码自动登录，失败自动回退扫码登录；
   - 否则直接扫码登录。
 登录成功后保存会话到 data/storage_state.json，之后 run.py 可直接复用。
@@ -19,7 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from browser.session import Session  # noqa: E402
-from core.config import DATA_DIR, load_config  # noqa: E402
+from core.settings import DATA_DIR, load_config  # noqa: E402
 
 
 def main() -> int:

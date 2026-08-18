@@ -41,7 +41,7 @@ def _save_debug_snapshot(page: Page, label: str) -> None:
     """异常现场保存：截图 + HTML。"""
     from datetime import datetime
 
-    from core.config import DATA_DIR
+    from core.settings import DATA_DIR
 
     debug_dir = DATA_DIR / "debug"
     debug_dir.mkdir(parents=True, exist_ok=True)

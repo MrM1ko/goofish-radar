@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-from core.config import INVALID_ITEM_WORDS_FILE, MonitorConfig
+from core.settings import INVALID_ITEM_WORDS_FILE, MonitorConfig
 from core.filter.base import Filter, load_words, match_words, normalize_text
 from core.models import DetailResult, FilterResult, Product
 

@@ -1,0 +1,24 @@
+{
+  "_说明": "搜索频率、浏览器行为和监控任务。复制到 config/search.json 后修改。",
+  "poll_interval_minutes": 5,
+  "search": {
+    "_说明": "延时范围格式为 [最少秒数, 最多秒数]。",
+    "sort": "time",
+    "max_scan_items": 50,
+    "headless": false,
+    "random_delay_seconds": [3, 8],
+    "screenshot": false
+  },
+  "monitors": [
+    {
+      "_说明": "每个对象是一项搜索任务；auto_order=false 时只筛选和通知。",
+      "name": "iphone15",
+      "keyword": "iPhone 15",
+      "enabled": true,
+      "auto_order": false,
+      "max_price": 3500,
+      "exclude_words": ["空盒", "包装盒", "求购", "租赁"],
+      "version_rules": []
+    }
+  ]
+}

@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-from core.config import MonitorConfig
+from core.settings import MonitorConfig
 from core.filter.identity_filter import IdentityFilter
 from core.models import DetailResult, Product
 

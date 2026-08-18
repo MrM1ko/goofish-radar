@@ -23,7 +23,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))  # 支持任意工作目录启动
 
-from core.config import (  # noqa: E402
+from core.settings import (  # noqa: E402
     DATA_DIR,
     AppConfig,
     ConfigError,

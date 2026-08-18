@@ -15,7 +15,7 @@ import unicodedata
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from core.config import MonitorConfig
+from core.settings import MonitorConfig
 from core.models import DetailResult, FilterResult, Product
 
 

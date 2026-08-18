@@ -23,7 +23,7 @@ from browser.detail import DetailReader
 from browser.order import OrderCreator
 from browser.searcher import Searcher
 from browser.session import Session
-from core.config import AppConfig
+from core.settings import AppConfig
 from core.dedupe import DedupeStore
 from core.filter.ai_filter import AiFilter
 from core.filter.identity_filter import IdentityFilter

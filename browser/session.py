@@ -20,7 +20,7 @@ from pathlib import Path
 from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
 
 from browser.selectors import Selectors, pick
-from core.config import LoginConfig
+from core.settings import LoginConfig
 
 logger = logging.getLogger(__name__)
 

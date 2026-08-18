@@ -19,7 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from browser.selectors import Selectors  # noqa: E402
 from browser.session import Session  # noqa: E402
-from core.config import DATA_DIR  # noqa: E402
+from core.settings import DATA_DIR  # noqa: E402
 
 
 def _wait_cards(page, timeout_s: int = 25) -> bool:

@@ -1,7 +1,7 @@
-"""配置加载与校验。
+"""应用设置模型、加载与校验。
 
-从 config/config.json 读取全部配置，解析为强类型 dataclass，
-启动时做一次完整校验，避免运行中途才发现配置错误。
+从 config/search.json、account.json、order.json 分别读取搜索、账号和拍单设置，
+启动时合并并完整校验，避免真实配置与代码模块混淆。
 
 所有文件路径都相对项目根目录解析，保证项目整体目录可整体迁移。
 """
@@ -19,12 +19,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = PROJECT_ROOT / "config"
 DATA_DIR = PROJECT_ROOT / "data"
 
-CONFIG_FILE = CONFIG_DIR / "config.json"
-CONFIG_EXAMPLE_FILE = CONFIG_DIR / "config.example.json"
+CONFIG_FILES = ("search.json", "account.json", "order.json")
+EXAMPLES_DIR = CONFIG_DIR / "examples"
 
-NEGATIVE_WORDS_FILE = CONFIG_DIR / "negative_words.txt"
-TRACTION_WORDS_FILE = CONFIG_DIR / "traction_words.txt"
-INVALID_ITEM_WORDS_FILE = CONFIG_DIR / "invalid_item_words.txt"
+WORDLISTS_DIR = CONFIG_DIR / "wordlists"
+NEGATIVE_WORDS_FILE = WORDLISTS_DIR / "negative_words.txt"
+TRACTION_WORDS_FILE = WORDLISTS_DIR / "traction_words.txt"
+INVALID_ITEM_WORDS_FILE = WORDLISTS_DIR / "invalid_item_words.txt"
 
 
 class ConfigError(Exception):
@@ -153,21 +154,36 @@ class AppConfig:
 # ---------------------------------------------------------------- 加载与校验
 
 
-def load_config(path: Path | None = None) -> AppConfig:
-    """加载并校验配置文件。
+def load_config(directory: Path | None = None) -> AppConfig:
+    """从目录加载 search/account/order 三份独立设置并统一校验。"""
+    directory = directory or CONFIG_DIR
+    if not directory.is_dir():
+        raise ConfigError(f"配置目录不存在: {directory}")
 
-    文件不存在时抛出 ConfigError 并提示复制示例配置。
-    """
-    path = path or CONFIG_FILE
-    if not path.exists():
-        raise ConfigError(
-            f"配置文件不存在: {path}\n"
-            f"请先复制 {CONFIG_EXAMPLE_FILE.name} 为 {CONFIG_FILE.name} 并填写真实配置。"
-        )
-    try:
-        raw: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise ConfigError(f"配置文件不是合法 JSON: {e}") from e
+    raw: dict[str, Any] = {}
+    for filename in CONFIG_FILES:
+        path = directory / filename
+        if not path.exists():
+            example = EXAMPLES_DIR / filename.replace(".json", ".example.json")
+            raise ConfigError(
+                f"配置文件不存在: {path}\n"
+                f"请复制 {example} 为 {path} 并填写真实配置。"
+            )
+        try:
+            part = json.loads(path.read_text(encoding="utf-8-sig"))
+        except json.JSONDecodeError as e:
+            raise ConfigError(f"配置文件 {path.name} 不是合法 JSON: {e}") from e
+        except OSError as e:
+            raise ConfigError(f"配置文件 {path.name} 读取失败: {e}") from e
+        if not isinstance(part, dict):
+            raise ConfigError(f"配置文件 {path.name} 顶层必须是对象")
+
+        values = {key: value for key, value in part.items() if not key.startswith("_")}
+        duplicate = set(raw).intersection(values)
+        if duplicate:
+            fields = ", ".join(sorted(duplicate))
+            raise ConfigError(f"配置项重复: {path.name} 中的 {fields} 已在其他文件定义")
+        raw.update(values)
 
     cfg = _parse(raw)
     _validate(cfg)

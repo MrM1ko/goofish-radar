@@ -1,0 +1,8 @@
+{
+  "_说明": "自动拍单总开关和安全限额。程序只创建待付款订单，不会自动付款。",
+  "buy": {
+    "enabled": false,
+    "daily_limit": 3,
+    "order_interval_minutes": 20
+  }
+}

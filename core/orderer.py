@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 
-from core.config import BuyConfig, MonitorConfig
+from core.settings import BuyConfig, MonitorConfig
 from core.filter.base import normalize_text
 from core.models import DetailResult, FilterResult, OrderResult, Product
 

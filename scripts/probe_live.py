@@ -28,7 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from browser.session import Session  # noqa: E402
-from core.config import DATA_DIR  # noqa: E402
+from core.settings import DATA_DIR  # noqa: E402
 
 DEBUG_DIR = DATA_DIR / "debug"
 CMD_FILE = DEBUG_DIR / "live_cmd.jsonl"

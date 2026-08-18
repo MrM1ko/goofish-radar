@@ -12,7 +12,7 @@ import os
 
 import requests
 
-from core.config import ClawbotConfig
+from core.settings import ClawbotConfig
 from core.notifier.base import Notifier
 
 logger = logging.getLogger(__name__)

@@ -16,7 +16,7 @@ import re
 
 import requests
 
-from core.config import AiConfig, MonitorConfig
+from core.settings import AiConfig, MonitorConfig
 from core.filter.base import Filter
 from core.models import DetailResult, FilterResult, Product
 

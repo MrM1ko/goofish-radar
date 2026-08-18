@@ -40,10 +40,13 @@
 uv sync
 uv run playwright install chromium
 
-# 2. 配置
-cp config/config.example.json config/config.json
-#   填写邮箱授权码；如需"账号密码自动重登"，把 login 段 enabled 置为
-#   true 并填 username / password（不配置则仅用扫码登录）
+# 2. 创建三份本地配置
+cp config/examples/search.example.json config/search.json
+cp config/examples/account.example.json config/account.json
+cp config/examples/order.example.json config/order.json
+# search.json：搜索频率、浏览器行为和监控任务
+# account.json：闲鱼登录、AI、邮件和微信通知
+# order.json：自动拍单开关与安全限额
 
 # 3. 登录（有头浏览器；配置了账号密码则优先自动登录，失败回退扫码，会话自动保存）
 uv run python scripts/login.py
@@ -61,7 +64,12 @@ uv run python run.py        # Ctrl+C 优雅退出
 闲鱼/
 ├── run.py                # 入口：常驻轮询、单实例锁、日志
 ├── pyproject.toml        # uv 依赖与 pytest 配置
-├── config/               # config.json + 三份词表
+├── config/
+│   ├── search.json       # 本地搜索配置（Git 忽略）
+│   ├── account.json      # 本地账号与密钥（Git 忽略）
+│   ├── order.json        # 本地拍单配置（Git 忽略）
+│   ├── examples/         # 可安全提交的三份示例配置
+│   └── wordlists/        # 过滤词表
 ├── browser/
 │   ├── selectors.py      # 全部页面选择器集中管理（2026-08 实测固化）
 │   ├── session.py        # 登录/会话复用/风控识别/账号密码自动重登
@@ -69,7 +77,7 @@ uv run python run.py        # Ctrl+C 优雅退出
 │   ├── detail.py         # 详情页读取 + 多规格检测
 │   └── order.py          # 创建待付款订单（绝不支付）
 ├── core/
-│   ├── config.py         # 配置加载与校验（含账号密码登录段）
+│   ├── settings.py       # 设置模型、三份配置的加载与校验
 │   ├── models.py         # 数据模型
 │   ├── dedupe.py         # 全局 item_id 去重
 │   ├── pipeline.py       # 主流程编排
@@ -95,10 +103,10 @@ uv run pytest   # 纯逻辑测试，不依赖浏览器
 
 ## 上线前必做（按顺序）
 
-1. 配置 `config.json`：邮箱授权码必填；如需账号密码自动重登，开启 `login.enabled` 并填写 `username` / `password`；
+1. 检查三份本地配置：在 `account.json` 填邮箱授权码；如需账号密码自动重登，开启 `login.enabled` 并填写 `username` / `password`；
 2. `uv run python scripts/login.py` 完成登录并保存会话；运行期间会话失效时程序会自动重登，无需人工干预；
 3. 页面改版或长时间未运行后，用 `uv run python scripts/probe.py "关键词"` 复核选择器是否仍命中（已固化的选择器日常无需此步）；
-4. 测试环境：`config.json` 中 `headless=false`、`buy.enabled=false`，人工观察搜索/详情/过滤/通知；
+4. 测试环境：在 `search.json` 中设 `headless=false`，在 `order.json` 中设 `buy.enabled=false`，人工观察搜索/详情/过滤/通知；
 5. 拍单验证：`daily_limit=1`，人工全程观察一次下单，确认生成待付款订单且**无任何支付动作**；
 6. 确认无误后切回 `headless=true` 常驻运行。
 

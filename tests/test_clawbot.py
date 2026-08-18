@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.config import ClawbotConfig
+from core.settings import ClawbotConfig
 from core.notifier.clawbot import ClawbotNotifier
 
 

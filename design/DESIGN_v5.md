@@ -98,11 +98,11 @@
 ├── .gitignore
 │
 ├── config/
-│   ├── config.example.json
-│   ├── config.json
-│   ├── negative_words.txt        # 损坏/瑕疵词表
-│   ├── traction_words.txt        # 引流词表
-│   └── invalid_item_words.txt    # 空盒/配件/求购/租赁/定金等
+│   ├── search.json               # 本地搜索配置（Git 忽略）
+│   ├── account.json              # 本地账号与密钥（Git 忽略）
+│   ├── order.json                # 本地拍单配置（Git 忽略）
+│   ├── examples/                 # 三份可提交的示例配置
+│   └── wordlists/                # 损坏/引流/无效商品词表
 │
 ├── browser/
 │   ├── __init__.py
@@ -114,7 +114,7 @@
 │
 ├── core/
 │   ├── __init__.py
-│   ├── config.py                 # 配置加载与校验
+│   ├── settings.py               # 设置模型、加载与校验
 │   ├── models.py                 # 数据模型
 │   ├── dedupe.py                 # 全局 item_id 去重
 │   ├── pipeline.py               # 主流程
@@ -214,7 +214,16 @@ AI 语义过滤（可选）
 
 ### 6.1 推荐配置结构
 
-不再使用一个全局 `keywords + max_price`，改为每个监控任务独立配置。
+配置按职责拆分，启动时由 `core/settings.py` 合并并统一校验：
+
+| 文件 | 内容 | 是否提交 Git |
+|---|---|---|
+| `config/search.json` | 轮询、浏览器搜索、监控任务 | 否 |
+| `config/account.json` | 闲鱼登录、AI、邮件、微信通知 | 否 |
+| `config/order.json` | 自动拍单开关和安全限额 | 否 |
+| `config/examples/*.example.json` | 无真实凭据的填写模板 | 是 |
+
+搜索任务不再使用一个全局 `keywords + max_price`，每个 monitor 独立配置。下面仅展示 `search.json` 的主体结构：
 
 ```json
 {
@@ -255,33 +264,7 @@ AI 语义过滤（可选）
         "求购"
       ]
     }
-  ],
-
-  "buy": {
-    "enabled": true,
-    "daily_limit": 3,
-    "order_interval_minutes": 20
-  },
-
-  "ai": {
-    "enabled": false,
-    "base_url": "https://api.deepseek.com/v1",
-    "model": "deepseek-chat",
-    "api_key": "",
-    "timeout_seconds": 20
-  },
-
-  "smtp": {
-    "enabled": true,
-    "host": "smtp.qq.com",
-    "port": 465,
-    "use_ssl": true,
-    "user": "you@qq.com",
-    "password": "授权码",
-    "to": [
-      "you@qq.com"
-    ]
-  }
+  ]
 }
 ```
 
@@ -315,7 +298,7 @@ AI 语义过滤（可选）
 
 ## 7. 词表设计
 
-### 7.1 `negative_words.txt`
+### 7.1 `config/wordlists/negative_words.txt`
 
 用于明确的损坏、故障、瑕疵描述。
 
@@ -335,7 +318,7 @@ ID锁
 故障
 ```
 
-### 7.2 `traction_words.txt`
+### 7.2 `config/wordlists/traction_words.txt`
 
 用于识别明显引流。
 
@@ -352,7 +335,7 @@ QQ
 货到付款
 ```
 
-### 7.3 `invalid_item_words.txt`
+### 7.3 `config/wordlists/invalid_item_words.txt`
 
 用于识别不是目标商品本体的商品。
 
@@ -1752,7 +1735,9 @@ selector
 以下文件不得进入 Git：
 
 ```text
-config/config.json
+config/search.json
+config/account.json
+config/order.json
 data/storage_state.json
 data/
 ```

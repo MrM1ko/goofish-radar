@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-from core.config import BuyConfig, MonitorConfig
+from core.settings import BuyConfig, MonitorConfig
 from core.models import DetailResult, FilterResult, OrderResult, Product
 from core.orderer import Decision, OrderRecord, OrderStore, Orderer
 
@@ -155,7 +155,7 @@ def test_execute_passes_max_price_to_order_fn(store):
 
 def test_version_rule_price_limit(orderer):
     """版本规则：MacBook Air 主词，M2 版阈值 3500 / M4 版阈值 5500。"""
-    from core.config import VersionRule
+    from core.settings import VersionRule
 
     monitor = make_monitor(
         max_price=None,
@@ -180,7 +180,7 @@ def test_version_rule_price_limit(orderer):
 
 def test_version_rule_fallback_to_monitor_max(orderer):
     """未命中任何版本规则 → 用 monitor.max_price 兜底。"""
-    from core.config import VersionRule
+    from core.settings import VersionRule
 
     monitor = make_monitor(
         max_price=4000.0,
@@ -203,7 +203,7 @@ def test_no_price_limit_notifies_only(orderer):
 
 def test_version_match_uses_desc(orderer):
     """版本词在描述中出现也算命中（标题没写版本时）。"""
-    from core.config import VersionRule
+    from core.settings import VersionRule
 
     monitor = make_monitor(
         max_price=6000.0,
